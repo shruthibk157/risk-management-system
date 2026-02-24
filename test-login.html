@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Direct Login Test</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 25px 80px rgba(0,0,0,0.35);
+            width: 100%;
+            max-width: 420px;
+        }
+        .logo {
+            text-align: center;
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+        h1 { text-align: center; margin-bottom: 8px; color: #1e3a5f; font-size: 24px; }
+        .subtitle { text-align: center; color: #666; margin-bottom: 30px; font-size: 14px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: 600; color: #374151; font-size: 14px; }
+        input { 
+            width: 100%; 
+            padding: 14px 16px; 
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+        input:focus { outline: none; border-color: #2d5a87; box-shadow: 0 0 0 3px rgba(45, 90, 135, 0.1); }
+        button {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        button:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(30, 58, 95, 0.4); }
+        button:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+        
+        #result {
+            margin-top: 25px;
+            padding: 20px;
+            border-radius: 10px;
+            font-size: 14px;
+            display: none;
+        }
+        #result.show { display: block; }
+        #result.error { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+        #result.success { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+        
+        .info-box {
+            margin-top: 25px;
+            padding: 20px;
+            background: #f8fafc;
+            border-radius: 10px;
+            font-size: 12px;
+            font-family: monospace;
+            max-height: 250px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            color: #475569;
+        }
+        
+        .credentials {
+            background: #eff6ff;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .credentials p { font-size: 13px; color: #1e40af; margin: 5px 0; }
+        .credentials strong { color: #1e3a5f; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">🛡️</div>
+        <h1>Risk Management System</h1>
+        <p class="subtitle">Enterprise Risk Management Platform</p>
+        
+        <div class="credentials">
+            <p><strong>Username:</strong> admin</p>
+            <p><strong>Password:</strong> admin123</p>
+        </div>
+        
+        <div class="form-group">
+            <label>Username</label>
+            <input type="text" id="username" value="admin" placeholder="Enter username">
+        </div>
+        
+        <div class="form-group">
+            <label>Password</label>
+            <input type="password" id="password" value="admin123" placeholder="Enter password">
+        </div>
+        
+        <button id="loginBtn" onclick="doLogin()">Sign In</button>
+        
+        <div id="result"></div>
+        
+        <div class="info-box" id="debug">Click "Sign In" to test login...</div>
+    </div>
+
+    <script>
+        async function doLogin() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const btn = document.getElementById('loginBtn');
+            const result = document.getElementById('result');
+            const debug = document.getElementById('debug');
+            
+            btn.disabled = true;
+            btn.textContent = 'Testing...';
+            result.className = '';
+            result.style.display = 'none';
+            
+            let output = '';
+            
+            try {
+                // Step 1: Test backend health
+                output += 'Step 1: Testing backend connection...\n';
+                try {
+                    const health = await fetch('http://localhost:5000/api/health');
+                    const healthText = await health.text();
+                    output += `   ✓ Backend is running (${health.status})\n`;
+                    output += `   Response: ${healthText}\n\n`;
+                } catch (e) {
+                    output += `   ✗ Cannot connect to backend: ${e.message}\n`;
+                    output += '   Make sure "node server-sqlite.js" is running!\n\n';
+                    throw new Error('Backend not running');
+                }
+                
+                // Step 2: Test login
+                output += 'Step 2: Testing login...\n';
+                const loginRes = await fetch('http://localhost:5000/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                output += `   HTTP Status: ${loginRes.status}\n`;
+                
+                const loginData = await loginRes.json();
+                output += `   Response: ${JSON.stringify(loginData, null, 2)}\n\n`;
+                
+                if (loginRes.ok && loginData.token) {
+                    output += '✓ LOGIN SUCCESSFUL!\n';
+                    output += 'Token: ' + loginData.token.substring(0, 50) + '...';
+                    
+                    // Save token
+                    localStorage.setItem('token', loginData.token);
+                    
+                    result.className = 'success show';
+                    result.innerHTML = '<strong>✓ Login Successful!</strong><br>You can now use the main application.';
+                } else {
+                    output += '✗ LOGIN FAILED\n';
+                    result.className = 'error show';
+                    result.innerHTML = `<strong>✗ Login Failed</strong><br>${loginData.error || 'Unknown error'}`;
+                }
+                
+            } catch (error) {
+                output += `\n✗ Error: ${error.message}\n`;
+                result.className = 'error show';
+                result.innerHTML = `<strong>✗ Error</strong><br>${error.message}`;
+            }
+            
+            debug.textContent = output;
+            btn.disabled = false;
+            btn.textContent = 'Sign In';
+        }
+    </script>
+</body>
+</html>

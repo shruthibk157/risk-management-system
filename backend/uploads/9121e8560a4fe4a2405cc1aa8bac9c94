@@ -1,0 +1,25 @@
+IT DEPARTMENT – SAMPLE POLICY DOCUMENT
+
+1. Purpose
+This document defines basic IT policies to ensure system security, availability, and data integrity across the organization.
+
+2. Server Patch Management
+All production servers must be patched with the latest security updates at least once every month.
+Critical security patches must be applied within 48 hours of release.
+Failure to apply patches may expose systems to vulnerabilities, malware, or unauthorized access.
+
+3. Data Backup and Recovery
+Daily automated backups must be performed for all critical systems and databases.
+Backups must be stored securely and tested quarterly to ensure successful recovery.
+Lack of proper backups may result in data loss and business disruption.
+
+4. Access Control
+User access to systems must follow the principle of least privilege.
+Administrative access should be reviewed every quarter.
+Unauthorized or excessive access can lead to data breaches or compliance violations.
+
+5. Incident Management
+All security incidents must be reported to the IT team within 24 hours.
+Incidents should be logged, investigated, and resolved with corrective actions documented.
+
+End of Document

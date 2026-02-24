@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login Test - Risk Management</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .login-container {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            width: 100%;
+            max-width: 400px;
+        }
+        h1 { text-align: center; margin-bottom: 10px; color: #333; }
+        p.subtitle { text-align: center; color: #666; margin-bottom: 30px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: 500; color: #444; }
+        input { 
+            width: 100%; 
+            padding: 12px 16px; 
+            border: 2px solid #e1e5e9;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        input:focus { outline: none; border-color: #667eea; }
+        button {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        button:hover { transform: translateY(-2px); }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+        .message {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            display: none;
+        }
+        .message.error { background: #fee2e2; color: #dc2626; display: block; }
+        .message.success { background: #dcfce7; color: #16a34a; display: block; }
+        .debug {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8fafc;
+            border-radius: 8px;
+            font-size: 12px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <h1>🔐 Risk Management</h1>
+        <p class="subtitle">Enterprise Risk Management System</p>
+        
+        <div class="form-group">
+            <label>Username</label>
+            <input type="text" id="username" value="admin" placeholder="Enter username">
+        </div>
+        
+        <div class="form-group">
+            <label>Password</label>
+            <input type="password" id="password" value="admin123" placeholder="Enter password">
+        </div>
+        
+        <button id="loginBtn" onclick="testLogin()">Login</button>
+        
+        <div id="message" class="message"></div>
+        
+        <div class="debug" id="debug">Click Login to see results...</div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:5000/api';
+        
+        async function testLogin() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const btn = document.getElementById('loginBtn');
+            const message = document.getElementById('message');
+            const debug = document.getElementById('debug');
+            
+            btn.disabled = true;
+            btn.textContent = 'Logging in...';
+            message.className = 'message';
+            message.style.display = 'none';
+            debug.textContent = 'Testing connection...\n';
+            
+            try {
+                // Test 1: Check if backend is running
+                debug.textContent += '1. Checking backend health...\n';
+                const healthRes = await fetch(`${API_URL}/health`);
+                const healthData = await healthRes.text();
+                debug.textContent += `   Health check: ${healthRes.status} - ${healthData}\n`;
+                
+                if (!healthRes.ok) {
+                    throw new Error('Backend not responding');
+                }
+                
+                // Test 2: Try login
+                debug.textContent += '2. Attempting login...\n';
+                const loginRes = await fetch(`${API_URL}/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                const loginData = await loginRes.json();
+                debug.textContent += `   Response status: ${loginRes.status}\n`;
+                debug.textContent += `   Response data: ${JSON.stringify(loginData, null, 2)}\n`;
+                
+                if (loginRes.ok && loginData.token) {
+                    message.className = 'message success';
+                    message.textContent = '✓ Login successful! Token received.';
+                    message.style.display = 'block';
+                    debug.textContent += '\n✓ LOGIN SUCCESSFUL!\n';
+                    localStorage.setItem('token', loginData.token);
+                } else {
+                    message.className = 'message error';
+                    message.textContent = '✗ ' + (loginData.error || 'Login failed');
+                    message.style.display = 'block';
+                    debug.textContent += '\n✗ LOGIN FAILED\n';
+                }
+                
+            } catch (error) {
+                debug.textContent += `\n✗ Error: ${error.message}\n`;
+                message.className = 'message error';
+                message.textContent = '✗ ' + error.message;
+                message.style.display = 'block';
+            }
+            
+            btn.disabled = false;
+            btn.textContent = 'Login';
+        }
+    </script>
+</body>
+</html>
