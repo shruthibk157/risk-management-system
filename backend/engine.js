@@ -14,7 +14,7 @@ const fs = require('fs');
 const upload = multer({ dest: 'uploads/' });
 
 const app = express();
-const PORT = process.env.PORT || 5001;
+const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'risk-management-secret-key-2024';
 
 app.use(cors());
@@ -70,7 +70,8 @@ db.serialize(() => {
     risk_id TEXT UNIQUE,
     sl_no INTEGER,
     department_id INTEGER,
-    requirement_process_area TEXT,
+    requirement_process_area TEXT, -- Legacy name
+    process_function TEXT,
     risk_description TEXT,
     potential_failure_mode TEXT,
     potential_effects TEXT,
@@ -142,11 +143,33 @@ db.serialize(() => {
       const risksColumns = [
         ['residual_rpn', 'INTEGER'],
         ['review_date', 'DATE'],
-        ['action_status_results', 'TEXT']
+        ['action_status_results', 'TEXT'],
+        ['process_function', 'TEXT']
       ];
       risksColumns.forEach(([col, type]) => {
         db.run(`ALTER TABLE risks ADD COLUMN ${col} ${type}`, () => { });
       });
+
+      // Migration: Move data from requirement_process_area to process_function if exists
+      db.run(`UPDATE risks SET process_function = requirement_process_area WHERE process_function IS NULL AND requirement_process_area IS NOT NULL`, (err) => {
+        if (!err) console.log('✓ Migration: Migrated requirement_process_area to process_function');
+      });
+
+      // Initialize AI Audit Logs Table
+      db.run(`CREATE TABLE IF NOT EXISTS ai_audit_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        risk_id INTEGER,
+        action_type TEXT,
+        original_input TEXT,
+        ai_suggestion TEXT,
+        user_decision TEXT,
+        final_value TEXT,
+        justification TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id),
+        FOREIGN KEY (risk_id) REFERENCES risks(id)
+      )`);
 
       if (err) {
         console.log('Index creation failed:', err.message);
@@ -159,13 +182,15 @@ db.serialize(() => {
 
 
 
-  // Global SL No Index (New)
-  db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_risks_sl_no ON risks(sl_no)`, (err) => {
-    if (err) {
-      console.log('Global SL No index skipped or already exists:', err.message);
-    } else {
-      console.log('✓ Global Index idx_risks_sl_no created');
-    }
+  // Department-Specific SL No Index (Updated)
+  db.run(`DROP INDEX IF EXISTS idx_risks_sl_no`, (err) => {
+    db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_risks_dept_sl_no ON risks(department_id, sl_no)`, (err) => {
+      if (err) {
+        console.log('Department SL No index skipped or already exists:', err.message);
+      } else {
+        console.log('✓ Department Index idx_risks_dept_sl_no created');
+      }
+    });
   });
 
   // Migration: Add sl_no column if it doesn't exist
@@ -191,16 +216,21 @@ db.serialize(() => {
       db.run(`UPDATE risks SET date_raised = date('now') WHERE date_raised IS NULL`);
     }
   });
-  // Cleanup: Delete any "phantom" or empty risks before re-indexing
+  // Cleanup and department-specific re-indexing
   db.run(`DELETE FROM risks WHERE risk_description IS NULL OR risk_description = '' OR department_id IS NULL OR department_id = ''`, (err) => {
     if (!err) {
-      // Re-index sl_no for valid risks (Global Sequential)
-      db.all("SELECT id FROM risks ORDER BY created_at ASC, id ASC", (err, rows) => {
-        if (!err && rows.length > 0) {
-          rows.forEach((row, index) => {
-            db.run("UPDATE risks SET sl_no = ? WHERE id = ?", [index + 1, row.id]);
+      db.all("SELECT DISTINCT department_id FROM risks", (err, depts) => {
+        if (!err && depts) {
+          depts.forEach(dept => {
+            db.all("SELECT id FROM risks WHERE department_id = ? ORDER BY created_at ASC, id ASC", [dept.department_id], (err, rows) => {
+              if (!err && rows) {
+                rows.forEach((row, index) => {
+                  db.run("UPDATE risks SET sl_no = ? WHERE id = ?", [index + 1, row.id]);
+                });
+              }
+            });
           });
-          console.log('✓ Cleaned up and re-indexed global sl_no');
+          console.log('✓ Cleaned up and re-indexed risks per department');
         }
       });
     }
@@ -293,7 +323,7 @@ db.get("SELECT count(*) as count FROM users", (err, row) => {
 
       // Sample risks
       if (deptMap['IT']) {
-        db.run(`INSERT INTO risks (risk_id, sl_no, department_id, requirement_process_area, risk_description, potential_failure_mode, potential_effects, severity, occurrence, detection, rpn, risk_classification, status, created_by) VALUES
+        db.run(`INSERT INTO risks (risk_id, sl_no, department_id, process_function, risk_description, potential_failure_mode, potential_effects, severity, occurrence, detection, rpn, risk_classification, status, created_by) VALUES
             ('RISK-0001', 1, ?, 'Data Center Operations', 'Server hardware failure', 'Hardware component failure', 'Business disruption', 4, 3, 2, 24, 'Acceptable (A)', 'Open', 1)`, [deptMap['IT']]);
       }
     });
@@ -493,6 +523,10 @@ app.get('/api/dashboard/admin/stats', authenticateToken, (req, res) => {
     return res.status(403).json({ error: 'Access denied' });
   }
 
+  const { department_id } = req.query;
+  const filter = department_id ? ' WHERE department_id = ?' : '';
+  const params = department_id ? [department_id] : [];
+
   const results = {
     totalDepartments: 0,
     totalUsers: 0,
@@ -506,15 +540,18 @@ app.get('/api/dashboard/admin/stats', authenticateToken, (req, res) => {
       if (row) results.totalDepartments = row.count;
     });
 
-    db.get('SELECT COUNT(*) as count FROM users', (err, row) => {
+    db.get(`SELECT COUNT(*) as count FROM users${filter}`, params, (err, row) => {
       if (row) results.totalUsers = row.count;
     });
 
-    db.get('SELECT COUNT(*) as count FROM risks', (err, row) => {
+    // Unified Active Risks: non-closed risks
+    const statusFilter = department_id ? " AND status != 'Closed'" : " WHERE status != 'Closed'";
+    db.get(`SELECT COUNT(*) as count FROM risks${filter}${statusFilter}`, params, (err, row) => {
       if (row) results.activeRisks = row.count;
     });
 
-    db.get('SELECT COUNT(*) as count FROM users WHERE is_active = 0', (err, row) => {
+    const inactiveFilter = department_id ? " AND is_active = 0" : " WHERE is_active = 0";
+    db.get(`SELECT COUNT(*) as count FROM users${filter}${inactiveFilter}`, params, (err, row) => {
       if (row) results.inactiveUsers = row.count;
     });
 
@@ -525,7 +562,7 @@ app.get('/api/dashboard/admin/stats', authenticateToken, (req, res) => {
         1 as is_active,
         (SELECT full_name FROM users WHERE department_id = d.id AND role = 'department_user' LIMIT 1) as head_name,
         (SELECT COUNT(*) FROM users WHERE department_id = d.id) as total_users,
-        (SELECT COUNT(*) FROM risks WHERE department_id = d.id) as active_risks
+        (SELECT COUNT(*) FROM risks WHERE department_id = d.id AND status != 'Closed') as active_risks
       FROM departments d
       ORDER BY d.name
     `, (err, rows) => {
@@ -630,8 +667,8 @@ app.get('/api/risks', authenticateToken, (req, res) => {
   }
 
   if (req.query.search) {
-    departmentFilter = departmentFilter ? `${departmentFilter} AND (r.risk_description LIKE ? OR r.process_function LIKE ? OR r.requirement_process_area LIKE ? OR r.potential_failure_mode LIKE ?)` : 'WHERE (r.risk_description LIKE ? OR r.process_function LIKE ? OR r.requirement_process_area LIKE ? OR r.potential_failure_mode LIKE ?)';
-    params.push(`%${req.query.search}%`, `%${req.query.search}%`, `%${req.query.search}%`, `%${req.query.search}%`);
+    departmentFilter = departmentFilter ? `${departmentFilter} AND (r.risk_description LIKE ? OR r.process_function LIKE ? OR r.potential_failure_mode LIKE ?)` : 'WHERE (r.risk_description LIKE ? OR r.process_function LIKE ? OR r.potential_failure_mode LIKE ?)';
+    params.push(`%${req.query.search}%`, `%${req.query.search}%`, `%${req.query.search}%`);
   }
 
   const query = `SELECT r.*, d.name as department_name FROM risks r JOIN departments d ON r.department_id = d.id ${departmentFilter} ORDER BY r.sl_no ASC`;
@@ -648,18 +685,15 @@ app.get('/api/risks', authenticateToken, (req, res) => {
   });
 });
 
-// Changed from department specific to Global (with fallback to department specific if requested)
+// Next SL No (Department Specific)
 app.get('/api/risks/next-sl-no/:departmentId?', authenticateToken, (req, res) => {
   const departmentId = req.params.departmentId || req.query.department_id;
-  let query = 'SELECT MAX(sl_no) as max_sl FROM risks';
-  let params = [];
 
-  if (departmentId) {
-    query += ' WHERE department_id = ?';
-    params.push(departmentId);
+  if (!departmentId) {
+    return res.status(400).json({ error: 'Department ID is required' });
   }
 
-  db.get(query, params, (err, row) => {
+  db.get('SELECT MAX(sl_no) as max_sl FROM risks WHERE department_id = ?', [departmentId], (err, row) => {
     if (err) return res.status(500).json({ error: err.message });
     const nextSlNo = (row?.max_sl || 0) + 1;
     res.json({ next_sl_no: nextSlNo });
@@ -705,7 +739,7 @@ app.get('/api/risks/:id', (req, res) => {
 
 app.post('/api/risks', authenticateToken, (req, res) => {
   const {
-    date_raised, department_id, requirement_process_area, risk_description,
+    date_raised, department_id, process_function, risk_description,
     potential_failure_mode, potential_effects, severity,
     potential_causes, current_controls_prevention, occurrence,
     current_controls_detection, detection, recommended_actions,
@@ -739,12 +773,12 @@ app.post('/api/risks', authenticateToken, (req, res) => {
       finalRiskId = String(nextNum);
     }
 
-    // Global SL No Logic: MAX(sl_no) + 1
-    db.get('SELECT MAX(sl_no) as max_sl FROM risks', [], (err, slRow) => {
-      const nextSlNo = (slRow.max_sl || 0) + 1;
+    // Department Specific SL No Logic: MAX(sl_no) + 1
+    db.get('SELECT MAX(sl_no) as max_sl FROM risks WHERE department_id = ?', [department_id], (err, slRow) => {
+      const nextSlNo = (slRow?.max_sl || 0) + 1;
 
       const query = `INSERT INTO risks (
-    risk_id, sl_no, department_id, date_raised, requirement_process_area,
+    risk_id, sl_no, department_id, date_raised, process_function,
     risk_description, potential_failure_mode, potential_effects,
     severity, potential_causes, current_controls_prevention,
     occurrence, current_controls_detection, detection,
@@ -755,7 +789,7 @@ app.post('/api/risks', authenticateToken, (req, res) => {
   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
       const params = [
-        finalRiskId, nextSlNo, department_id, date_raised || new Date().toISOString().split('T')[0], requirement_process_area,
+        finalRiskId, nextSlNo, department_id, date_raised || new Date().toISOString().split('T')[0], process_function,
         risk_description, potential_failure_mode, potential_effects,
         s, potential_causes, current_controls_prevention,
         o, current_controls_detection, d,
@@ -779,7 +813,7 @@ app.post('/api/risks', authenticateToken, (req, res) => {
 
 app.put('/api/risks/:id', authenticateToken, (req, res) => {
   const {
-    date_raised, requirement_process_area, risk_description, potential_failure_mode,
+    date_raised, process_function, risk_description, potential_failure_mode,
     potential_effects, severity, potential_causes,
     current_controls_prevention, occurrence, current_controls_detection,
     detection, recommended_actions, action_status_results,
@@ -809,7 +843,7 @@ app.put('/api/risks/:id', authenticateToken, (req, res) => {
   }
 
   db.run(`UPDATE risks SET 
-      date_raised = ?, requirement_process_area = ?, risk_description = ?, 
+      date_raised = ?, process_function = ?, risk_description = ?, 
       potential_failure_mode = ?, potential_effects = ?, severity = ?, 
       potential_causes = ?, current_controls_prevention = ?, occurrence = ?, 
       current_controls_detection = ?, detection = ?, rpn = ?, 
@@ -819,7 +853,7 @@ app.put('/api/risks/:id', authenticateToken, (req, res) => {
       severity_after = ?, occurrence_after = ?, detection_after = ?, residual_rpn = ?
     WHERE id = ?`,
     [
-      date_raised, requirement_process_area, risk_description, potential_failure_mode,
+      date_raised, process_function, risk_description, potential_failure_mode,
       potential_effects, severity, potential_causes,
       current_controls_prevention, occurrence, current_controls_detection,
       detection, rpn, risk_classification, // Changed from risk_index to rpn
@@ -862,500 +896,8 @@ app.delete('/api/risks/:id', authenticateToken, (req, res) => {
 });
 
 
-// Extremely simple keyword extractor for knowledge base tagging
-function extractKeywords(text, limit = 5) {
-  if (!text) return [];
-  const noise = ['and', 'the', 'for', 'with', 'from', 'this', 'that', 'these', 'those', 'will', 'been', 'have', 'were', 'their', 'which', 'when', 'what', 'where', 'risk', 'management', 'system'];
-  const words = text.toLowerCase()
-    .replace(/[^\w\s]/g, '')
-    .split(/\s+/)
-    .filter(w => w.length > 3 && !noise.includes(w));
-
-  const freq = {};
-  words.forEach(w => freq[w] = (freq[w] || 0) + 1);
-
-  return Object.keys(freq)
-    .sort((a, b) => freq[b] - freq[a])
-    .slice(0, limit);
-}
-
-// Professional Polish Engine - Improvises sentence structure, grammar and tone
-function professionalPolish(text) {
-  if (!text) return '';
-
-  // Clean up all internal tags and system headers
-  let polished = text.replace(/\[REPHRASE_MODE\]/gi, '')
-    .replace(/\[RESULTS_MODE\]/gi, '')
-    .replace(/\[RECOM_MODE\]/gi, '')
-    .replace(/\[DIRECTIVE_MODE\]/gi, '')
-    .replace(/\[DEPARTMENTAL INSTRUCTIONS\]/gi, '')
-    .replace(/\[KNOWLEDGE BASE DOCUMENTS\]/gi, '')
-    .replace(/\[CURRENT CONTEXT\]/gi, '')
-    .trim();
-
-  if (!polished) return '';
-
-  // 1. Basic Capitalization (First letter)
-  polished = polished.charAt(0).toUpperCase() + polished.slice(1);
-
-  // 2. Dictionary of professional replacements
-  const dictionary = {
-    'bad': 'sub-optimal',
-    'not good': 'unacceptable',
-    'fix': 'remediate',
-    'broken': 'compromised',
-    'maybe': 'potentially',
-    'lots of': 'significant',
-    'stuff': 'assets',
-    'things': 'parameters',
-    'problem': 'issue',
-    'happen': 'occur',
-    'go down': 'fail',
-    'help': 'assist',
-    'want': 'require',
-    'check': 'verify',
-    'tell': 'notify',
-    'do': 'execute',
-    'ok': 'satisfactory',
-    'done': 'finalized',
-    'soon': 'imminently'
-  };
-
-  // Replace words while preserving case for the first letter if needed
-  Object.keys(dictionary).forEach(word => {
-    const regex = new RegExp(`\\b${word}\\b`, 'gi');
-    polished = polished.replace(regex, (match) => {
-      const isUpper = match.charAt(0) === match.charAt(0).toUpperCase();
-      const replacement = dictionary[word];
-      return isUpper ? replacement.charAt(0).toUpperCase() + replacement.slice(1) : replacement;
-    });
-  });
-
-  // 3. Ensure it ends with a period if it's a sentence
-  if (!polished.endsWith('.') && !polished.endsWith('!') && !polished.endsWith('?')) {
-    polished += '.';
-  }
-
-  return polished;
-}
-
-// Structured Risk Articulation - Enterprise Wisdom Engine (Domain-Driven Heuristics)
-// Structured Risk Articulation - Enterprise Wisdom Engine (Domain-Driven Heuristics)
-function articulateStructuredRisk({ department, context_text }) {
-  // Safety check: Ensure department exists and has required properties
-  if (!department || !department.name) {
-    console.error('❌ [WISDOM-V2.1] Invalid department object:', department);
-    throw new Error('Department information is required for risk articulation');
-  }
-
-  const ctx = context_text ? context_text.toLowerCase() : '';
-  const isRephrase = context_text && context_text.includes('[REPHRASE_MODE]');
-  const isMagicPrompt = context_text && context_text.includes('[MAGIC_PROMPT_MODE]');
-  const isSuggestControls = context_text && context_text.includes('[SUGGEST_CONTROLS]');
-
-  const dept = department.name.toUpperCase();
-  console.log(`🧠 [WISDOM-V2.2] Triggered | Dept: ${dept} | Mode: ${isRephrase ? 'REPHRASE' : (isMagicPrompt ? 'MAGIC_PROMPT' : (isSuggestControls ? 'SUGGEST_CONTROLS' : 'GENERATE'))}`);
-
-  if (isRephrase) {
-    // Isolate user context if headers are present
-    let userText = context_text;
-    if (context_text.includes('[CURRENT CONTEXT]')) {
-      userText = context_text.split('[CURRENT CONTEXT]')[1] || context_text;
-    }
-
-    const polishedText = professionalPolish(userText);
-
-    if (context_text.includes('[RESULTS_MODE]')) {
-      return {
-        actions_taken: polishedText,
-        actual_completion_date: new Date().toISOString().split('T')[0],
-        is_ai_assisted: true,
-        engine_version: '2.2-POLISH-RESULTS'
-      };
-    }
-
-    if (context_text.includes('[RECOM_MODE]')) {
-      return {
-        recommended_actions: polishedText,
-        treatment_type: 'Treat',
-        is_ai_assisted: true,
-        engine_version: '2.2-POLISH-RECOM'
-      };
-    }
-
-    // Default Risk Description Rephrase
-    return {
-      risk_description: polishedText,
-      rephrased: polishedText,
-      is_ai_assisted: true,
-      engine_version: '2.2-POLISH-GEN'
-    };
-  }
-
-  if (isSuggestControls) {
-    // Suggestions for preventive and detective controls based on risk description
-    const controlHeuristics = [
-      {
-        patterns: ['access', 'security', 'unauthorized', 'data', 'breach', 'cyber'],
-        prevention: 'Enforce multi-factor authentication (MFA) and rotate encryption keys quarterly.',
-        detection: 'Deploy real-time anomaly detection and SIEM logging for all access requests.'
-      },
-      {
-        patterns: ['delay', 'deadline', 'milestone', 'project', 'schedule', 'late'],
-        prevention: 'Implement critical path analysis and allocate a 15% resource buffer for complex tasks.',
-        detection: 'Automate weekly variance reporting against the baseline project schedule.'
-      },
-      {
-        patterns: ['compliance', 'audit', 'iso', 'standard', 'regulation', 'policy'],
-        prevention: 'Conduct mandatory bi-annual compliance training and standardize documentation templates.',
-        detection: 'Schedule random internal audits and implement automated policy adherence checkers.'
-      },
-      {
-        patterns: ['hardware', 'server', 'uptime', 'down', 'failure', 'power'],
-        prevention: 'Establish N+1 redundancy for critical infrastructure and perform monthly failover tests.',
-        detection: 'Enable heartbeat monitoring with SMS/email escalation for sub-second downtime detection.'
-      },
-      {
-        patterns: ['human', 'error', 'manual', 'entry', 'reconciliation', 'mistake'],
-        prevention: 'Standardize data entry via mandatory drop-down menus and automated field validation.',
-        detection: 'Implement dual-verification (maker-checker) workflows for all critical transactions.'
-      }
-    ];
-
-    let suggestion = controlHeuristics.find(h => h.patterns.some(p => ctx.includes(p)));
-
-    if (!suggestion) {
-      suggestion = {
-        prevention: 'Standardize core process workflows and implement mandatory peer-review milestones.',
-        detection: 'Develop a risk-based monitoring dashboard with real-time KPI tracking.'
-      };
-    }
-
-    return {
-      current_controls_prevention: suggestion.prevention,
-      current_controls_detection: suggestion.detection,
-      is_ai_assisted: true,
-      engine_version: '2.2-SUGGEST-CONTROLS'
-    };
-  }
-
-  // Knowledge base for domain-specific risk scenarios
-  const wisdomBase = {
-    FINANCE: [
-      {
-        keywords: ['audit', 'compliance', 'tax', 'fraud', 'financial'],
-        risk: {
-          requirement_process_area: 'Internal Financial Controls (SOX Compliance)',
-          risk_description: 'Inaccuracies in financial reporting due to weak reconcilliation controls.',
-          potential_failure_mode: 'Material misstatement resulting from manual journal entry errors.',
-          potential_effects: 'Severe financial loss, audit qualification, and legal repercussions.',
-          potential_causes: 'Lack of automated reconciliation tools and inadequate segregation of duties.',
-          severity: 5, occurrence: 2, detection: 2,
-          recommended_actions: 'Digitize the approval chain with multi-level sign-offs in ERP.',
-          responsibility_owner: 'Finance Director',
-          treatment_type: 'Treat'
-        }
-      }
-    ],
-    HR: [
-      {
-        keywords: ['hiring', 'staffing', 'talent', 'turnover', 'attrition'],
-        risk: {
-          requirement_process_area: 'Human Resource Strategic Planning',
-          risk_description: 'Loss of critical institutional knowledge due to high attrition in key roles.',
-          potential_failure_mode: 'Absence of succession planning for specialist positions.',
-          potential_effects: 'Delayed project delivery and significantly increased recruitment costs.',
-          potential_causes: 'Uncompetitive compensation models or sub-optimal organizational culture.',
-          severity: 4, occurrence: 4, detection: 3,
-          recommended_actions: 'Formulate an Individual Development Plan (IDP) for high-potential employees.',
-          responsibility_owner: 'HR Manager',
-          treatment_type: 'Treat'
-        }
-      }
-    ],
-    QUALITY: [
-      {
-        keywords: ['iso', 'standard', 'defect', 'quality', 'non-conformance'],
-        risk: {
-          requirement_process_area: 'Operational Continuity & Quality (ISO 9001)',
-          risk_description: 'Non-conformance to standard operating procedures leading to quality degradation.',
-          potential_failure_mode: 'Equipment calibration drift resulting in product defects.',
-          potential_effects: 'High rework rates, customer returns, and potential loss of ISO certification.',
-          potential_causes: 'Inadequate maintenance schedules or lack of specialized spare parts.',
-          severity: 5, occurrence: 2, detection: 2,
-          recommended_actions: 'Implement predictive maintenance using IoT vibration sensors.',
-          responsibility_owner: 'Quality Assurance Lead',
-          treatment_type: 'Treat'
-        }
-      }
-    ],
-    DELIVERY: [
-      {
-        keywords: ['project', 'deadline', 'client', 'milestone', 'delay'],
-        risk: {
-          requirement_process_area: 'Project Delivery & Client SLA Management',
-          risk_description: 'Failure to meet critical project milestones as per the agreed SLA.',
-          potential_failure_mode: 'Underestimation of complexity during the scoping phase.',
-          potential_effects: 'Late delivery penalties and severe damage to corporate reputation.',
-          potential_causes: 'Scope creep or critical resource unavailability.',
-          severity: 4, occurrence: 3, detection: 2,
-          recommended_actions: 'Implement daily stand-ups and strict change control requests.',
-          responsibility_owner: 'Delivery Manager',
-          treatment_type: 'Treat'
-        }
-      }
-    ],
-    ADMIN: [
-      {
-        keywords: ['facility', 'vendor', 'logistic', 'office', 'asset'],
-        risk: {
-          requirement_process_area: 'Facility Management & Operational Continuity',
-          risk_description: 'Disruption of office operations due to critical vendor service failure.',
-          potential_failure_mode: 'Over-reliance on a single-source facility management vendor.',
-          potential_effects: 'Office closure, productivity loss, and internal stakeholder friction.',
-          potential_causes: 'Vendor insolvency or unresolved contractual disputes.',
-          severity: 3, occurrence: 2, detection: 2,
-          recommended_actions: 'Maintain a backup list of emergency service providers.',
-          responsibility_owner: 'Admin Head',
-          treatment_type: 'Treat'
-        }
-      }
-    ],
-    ITES: [
-      {
-        keywords: ['bpo', 'client', 'process', 'operation', 'service'],
-        risk: {
-          requirement_process_area: 'ITES Service Level Agreements',
-          risk_description: 'Service disruption in voice/data processes affecting client CX.',
-          potential_failure_mode: 'Internet or power redundancy failure at the delivery center.',
-          potential_effects: 'SLA breaches, loss of revenue, and client termination.',
-          potential_causes: 'Fiber-cut or failure of backup generator redundancy.',
-          severity: 5, occurrence: 1, detection: 1,
-          recommended_actions: 'Perform monthly full-load generator testing.',
-          responsibility_owner: 'Operations Manager',
-          treatment_type: 'Treat'
-        }
-      }
-    ],
-    IT: [
-      {
-        keywords: ['cyber', 'security', 'data', 'access', 'password', 'hack', 'vulnerability'],
-        risk: {
-          requirement_process_area: 'Information Security Management (ISO 27001)',
-          risk_description: 'Unauthorized access to sensitive enterprise data via credential compromise.',
-          potential_failure_mode: 'Inadequate multi-factor authentication or weak password policy.',
-          potential_effects: 'Data leakage, regulatory non-compliance, and loss of consumer trust.',
-          potential_causes: 'Social engineering or brute-force attacks on legacy systems.',
-          severity: 5, occurrence: 2, detection: 2,
-          recommended_actions: 'Enforce MFA across all external-facing applications.',
-          responsibility_owner: 'CISO / IT Manager',
-          treatment_type: 'Treat'
-        }
-      }
-    ]
-  };
-
-  // Find best match in the library
-  let match = null;
-  const deptLibrary = wisdomBase[dept] || [];
-
-  for (const item of deptLibrary) {
-    if (item.keywords.some(k => ctx.includes(k))) {
-      match = JSON.parse(JSON.stringify(item.risk));
-      break;
-    }
-  }
-
-  // Smart Fallback
-  if (!match) {
-    if (deptLibrary.length > 0) {
-      match = JSON.parse(JSON.stringify(deptLibrary[0].risk));
-      match.risk_description = `[Suggested] ${match.risk_description}`;
-    } else {
-      match = {
-        requirement_process_area: `${department.name} Operational Standards`,
-        risk_description: `Operational bottleneck in ${department.name} core processes.`,
-        potential_failure_mode: 'Execution failure during high-volume periods.',
-        potential_effects: 'Degradation of service quality and internal friction.',
-        potential_causes: 'Resource constraints or legacy manual workflows.',
-        severity: 3, occurrence: 3, detection: 3,
-        recommended_actions: 'Analyze workflow efficiency and identify automation opportunities.',
-        treatment_type: 'Treat'
-      };
-    }
-  }
-
-  // Dynamic Tweak for Context
-  const words = ctx.trim().split(' ');
-  if (words.length >= 2 && !isMagicPrompt && !isSuggestControls) {
-    const processName = words.slice(0, 3).join(' ');
-    match.requirement_process_area = `${processName.charAt(0).toUpperCase() + processName.slice(1)} Oversight`;
-  }
-
-  return { ...match, is_ai_assisted: true, engine_version: '2.2-WISDOM' };
-}
-
-// Consolidated Document Management routes moved to the end of the file for better organization.
-
-
-// Articulates risk based on department documents + current prompt
-app.post('/api/ai/articulate-risk', authenticateToken, upload.single('file'), async (req, res) => {
-  try {
-    const { department_id, context_text } = req.body;
-    if (!department_id) return res.status(400).json({ error: 'Department ID is required' });
-
-    // 1. Get knowledge from stored documents for this department
-    const docs = await new Promise((resolve, reject) => {
-      db.all('SELECT extracted_text FROM documents WHERE department_id = ?', [department_id], (err, rows) => {
-        if (err) reject(err);
-        else resolve(rows.map(r => r.extracted_text).join('\n\n'));
-      });
-    });
-
-    // 2. Get departmental custom instructions
-    const departmentExtra = await new Promise((resolve, reject) => {
-      db.get('SELECT id, name, custom_instructions FROM departments WHERE id = ?', [department_id], (err, row) => {
-        if (err) reject(err);
-        else resolve(row);
-      });
-    });
-
-    if (!departmentExtra) return res.status(400).json({ error: 'Invalid department ID' });
-
-    // 3. Add current file if any (handle .pdf and .txt)
-    let currentFileText = '';
-    if (req.file) {
-      const filePath = req.file.path;
-      const fileExt = path.extname(req.file.originalname).toLowerCase();
-
-      try {
-        if (fileExt === '.pdf') {
-          const dataBuffer = fs.readFileSync(filePath);
-          const dataP = await pdf(dataBuffer);
-          currentFileText = dataP.text;
-        } else if (fileExt === '.json' || fileExt === '.txt' || fileExt === '.csv') {
-          currentFileText = fs.readFileSync(filePath, 'utf8');
-        }
-      } catch (fileErr) {
-        console.error('File processing error:', fileErr);
-      } finally {
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-      }
-    }
-
-    const fullContext = `
-[DEPARTMENTAL INSTRUCTIONS]
-${departmentExtra.custom_instructions || 'None'}
-
-[KNOWLEDGE BASE DOCUMENTS]
-${docs || 'None'}
-
-[CURRENT CONTEXT]
-${currentFileText}
-${context_text || ''}
-`.trim();
-
-    const articulatedRisk = articulateStructuredRisk({
-      department: departmentExtra,
-      context_text: fullContext
-    });
-
-    console.log('✨ Advanced Articulation for', departmentExtra.name, '| Base Size:', fullContext.length);
-    res.json(articulatedRisk);
-
-  } catch (error) {
-    console.error('Articulation error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Magic Prompt: Document-Based AI Auto Risk Generation
-app.post('/api/ai/generate-risk', authenticateToken, async (req, res) => {
-  try {
-    const { department_id } = req.body;
-    if (!department_id) return res.status(400).json({ error: 'Department ID is required' });
-
-    // 1. Fetch extracted text from documents for this department
-    const docs = await new Promise((resolve, reject) => {
-      db.all('SELECT extracted_text FROM documents WHERE department_id = ?', [department_id], (err, rows) => {
-        if (err) reject(err);
-        else resolve(rows.map(r => r.extracted_text).join('\n\n'));
-      });
-    });
-
-    if (!docs || docs.trim().length === 0) {
-      return res.status(404).json({ error: 'Please upload department documents first.' });
-    }
-
-    // 2. Get department details
-    const department = await new Promise((resolve, reject) => {
-      db.get('SELECT id, name FROM departments WHERE id = ?', [department_id], (err, row) => {
-        if (err) reject(err);
-        else resolve(row);
-      });
-    });
-
-    // Validate department exists
-    if (!department) {
-      return res.status(404).json({ error: 'Department not found' });
-    }
-
-    // 3. Construct AI Prompt (As per requirements)
-    const aiPrompt = `
-You are an ISO 9001:2015 and FMEA expert.
-Based on the following department knowledge, generate a realistic risk entry.
-
-Department: ${department.name}
-
-Knowledge Context:
-${docs.substring(0, 5000)}
-
-Return JSON only:
-{
-"riskDescription": "",
-"failureMode": "",
-"effects": "",
-"causes": ""
-}
-
-Do not add explanation.
-    `.trim();
-
-    console.log('🤖 [MAGIC PROMPT] Generated Prompt Preview:\n', aiPrompt.substring(0, 500) + '...');
-
-    // SIMULATION: Since we don't have a live AI key, we use the Wisdom Engine heuristics
-    // In production with a key, this would be: const aiResponse = await callAI(aiPrompt);
-    const articulatedRisk = articulateStructuredRisk({
-      department: department,
-      context_text: `[MAGIC_PROMPT_MODE] ${docs.substring(0, 1000)}`
-    });
-
-    // 4. Map to requested JSON format (and then to DB columns for frontend)
-    const response = {
-      risk_description: articulatedRisk.risk_description,
-      potential_failure_mode: articulatedRisk.potential_failure_mode,
-      potential_effects: articulatedRisk.potential_effects,
-      potential_causes: articulatedRisk.potential_causes,
-      severity: articulatedRisk.severity,
-      occurrence: articulatedRisk.occurrence,
-      detection: articulatedRisk.detection,
-      recommended_actions: articulatedRisk.recommended_actions,
-      treatment_type: articulatedRisk.treatment_type,
-      is_ai_assisted: 1,
-      // Metadata for debugging
-      _ai_prompt_constructed: true
-    };
-
-    console.log('✨ Magic Prompt active for', department.name);
-
-    console.log('✨ Magic Prompt active for', department.name);
-    res.json(response);
-
-  } catch (error) {
-    console.error('Magic Prompt error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
+// AI Routes Integration
+app.use('/api/ai', require('./routes/aiRoutes'));
 
 // Dashboard Departments
 app.get('/api/dashboard/departments', authenticateToken, (req, res) => {
@@ -1497,6 +1039,9 @@ app.get('/api/departments/:id/overview', authenticateToken, (req, res) => {
     });
   });
 });
+
+// AI Routes Integration
+app.use('/api/ai', require('./routes/aiRoutes'));
 
 // AI Department overview generation endpoint
 app.post('/api/ai/department-overview', authenticateToken, (req, res) => {

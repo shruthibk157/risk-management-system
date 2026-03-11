@@ -380,6 +380,9 @@ const UserManagement = () => {
         .user-management-page {
           max-width: 1200px;
           margin: 0 auto;
+          padding: 2.5rem;
+          background: #F5F5F5;
+          min-height: 100vh;
           animation: slideUp 0.5s ease-out;
         }
 
@@ -393,67 +396,83 @@ const UserManagement = () => {
           align-items: center;
           justify-content: space-between;
           margin-bottom: 2rem;
-          background: rgba(30, 41, 59, 0.4);
-          backdrop-filter: blur(12px);
-          padding: 1.5rem;
-          border-radius: 20px;
-          border: 1px solid rgba(255, 255, 255, 0.05);
-          gap: 1.5rem;
+          background: linear-gradient(135deg, #1A4731 0%, #2D6A4F 60%, #40916C 100%);
+          border-radius: 16px;
+          padding: 28px 32px;
+          box-shadow: 0 8px 32px rgba(26,71,49,0.25);
         }
 
         .section-title {
-          font-size: 1.5rem;
+          font-family: 'DM Sans', sans-serif;
+          font-size: 1.6rem;
           font-weight: 800;
-          color: #f8fafc;
+          color: #FFFFFF;
           margin: 0;
-          letter-spacing: -0.02em;
         }
 
         .add-user-btn-refined {
           display: flex;
           align-items: center;
-          gap: 0.75rem;
-          padding: 0.75rem 1.5rem;
-          background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+          background: #FFFFFF;
+          color: #1A4731;
           border: none;
-          border-radius: 12px;
-          color: white;
+          border-radius: 10px;
+          padding: 12px 24px;
           font-weight: 700;
-          font-size: 0.875rem;
-          cursor: pointer;
+          font-size: 0.85rem;
+          letter-spacing: 0.03em;
+          box-shadow: 0 4px 16px rgba(0,0,0,0.15);
           transition: all 0.2s;
-          box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+          cursor: pointer;
+        }
+        .add-user-btn-refined:hover {
+          background: #F0FDF4;
+          box-shadow: 0 6px 24px rgba(0,0,0,0.2);
+        }
+        .add-user-btn-refined svg {
+          color: #2D6A4F;
+          font-weight: 800;
+          margin-right: 6px;
         }
 
         .table-container {
-          background: rgba(30, 41, 59, 0.3);
-          backdrop-filter: blur(16px);
-          border-radius: 20px;
-          border: 1px solid rgba(255, 255, 255, 0.05);
+          background: #FFFFFF;
+          border: 1px solid #E5E7EB;
+          border-radius: 16px;
+          box-shadow: 0 2px 12px rgba(0,0,0,0.06);
           overflow: hidden;
-          box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
+          margin-top: 20px;
         }
 
-        .table { width: 100%; border-collapse: collapse; }
+        .table { width: 100%; border-collapse: collapse; text-align: left; }
         .table th {
-          background: rgba(15, 23, 42, 0.4);
-          text-align: left;
-          padding: 1.25rem 1.5rem;
-          color: #94a3b8;
-          font-size: 0.7rem;
-          font-weight: 700;
+          background: #F8FAFB;
+          border-bottom: 2px solid #E5E7EB;
+          padding: 14px 24px;
+          color: #6B7280;
+          font-size: 0.65rem;
+          font-weight: 600;
+          letter-spacing: 0.15em;
           text-transform: uppercase;
-          letter-spacing: 0.05em;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.05);
         }
 
-        .table td { padding: 1.25rem 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.03); color: #cbd5e1; vertical-align: middle; }
+        .table td { 
+          background: #FFFFFF;
+          border-bottom: 1px solid #F3F4F6;
+          padding: 18px 24px;
+          transition: background 0.15s ease;
+          color: #374151; vertical-align: middle; 
+        }
+        
+        .table tbody tr:hover td {
+          background: #F0FDF4;
+        }
         
         .user-info-cell { display: flex; align-items: center; gap: 1rem; }
         .user-avatar {
           width: 40px;
           height: 40px;
-          background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+          background: linear-gradient(135deg, #1A4731 0%, #2D6A4F 100%);
           border-radius: 12px;
           display: flex;
           align-items: center;
@@ -462,42 +481,51 @@ const UserManagement = () => {
           color: white;
           font-size: 1rem;
         }
-        .user-name { font-weight: 700; color: #f8fafc; font-size: 1rem; }
-        .user-email { color: #64748b; font-size: 0.85rem; }
+        .user-name { font-weight: 600; color: #1A1A2E; font-size: 0.92rem; font-family: 'DM Sans', sans-serif;}
+        .user-email { color: #6B7280; font-size: 0.85rem; }
+        .user-username { color: #9CA3AF; font-size: 0.8rem; }
 
-        .dept-text { color: #94a3b8; font-size: 0.875rem; background: rgba(148, 163, 184, 0.1); padding: 0.25rem 0.625rem; border-radius: 6px; }
+        .dept-text { color: #6B7280; font-size: 0.88rem; }
 
         .badge {
           display: inline-flex;
           align-items: center;
-          gap: 0.5rem;
-          padding: 0.4rem 0.75rem;
-          border-radius: 8px;
-          font-size: 0.75rem;
-          font-weight: 700;
+          gap: 5px;
+          padding: 4px 12px;
+          border-radius: 20px;
+          font-size: 0.7rem;
+          font-weight: 600;
+          letter-spacing: 0.06em;
           text-transform: capitalize;
         }
-        .badge-blue { background: rgba(59, 130, 246, 0.1); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.2); }
-        .badge-green { background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); }
-        .badge-secondary { background: rgba(148, 163, 184, 0.1); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.2); }
+        .badge-blue { background: rgba(59, 130, 246, 0.08); color: #2563EB; border: 1.5px solid rgba(59, 130, 246, 0.2); }
+        .badge-green { background: rgba(16, 185, 129, 0.08); color: #059669; border: 1.5px solid rgba(16, 185, 129, 0.2); }
+        
+        .badge-green::before { content: '●'; font-size: 7px; color: #10B981; }
+        .badge-secondary { background: rgba(239, 68, 68, 0.08); color: #DC2626; border: 1.5px solid rgba(239, 68, 68, 0.2); }
+        .badge-secondary::before { content: '○'; font-size: 7px; }
 
         .action-buttons { display: flex; align-items: center; gap: 0.5rem; }
         .action-btn {
-          width: 36px;
-          height: 36px;
-          background: rgba(15, 23, 42, 0.4);
-          border: 1px solid rgba(255, 255, 255, 0.05);
-          border-radius: 10px;
-          color: #94a3b8;
-          display: flex;
-          align-items: center;
-          justify-content: center;
+          width: 32px; height: 32px;
+          border-radius: 8px;
+          border: 1.5px solid #E2E8F0;
+          background: #FFFFFF;
+          color: #6B7280;
+          display: flex; align-items: center; justify-content: center;
           cursor: pointer;
-          transition: all 0.2s;
+          transition: all 0.15s;
         }
-        .action-btn:hover { background: rgba(255, 255, 255, 0.1); color: #f1f5f9; transform: translateY(-2px); }
-        .action-btn.edit:hover { color: #3b82f6; border-color: #3b82f6; }
-        .action-btn.delete:hover { color: #ef4444; border-color: #ef4444; }
+        .action-btn.edit:hover {
+          border-color: #2D6A4F;
+          background: rgba(45,106,79,0.06);
+          color: #2D6A4F;
+        }
+        .action-btn.delete:hover {
+          border-color: #EF4444;
+          background: rgba(239,68,68,0.06);
+          color: #EF4444;
+        }
 
         .modal-overlay {
           position: fixed;
@@ -512,47 +540,47 @@ const UserManagement = () => {
         }
 
         .modal-content {
-          background: #1e293b;
-          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: #FFFFFF;
+          border: 1px solid rgba(0, 0, 0, 0.1);
           border-radius: 24px;
           width: 100%;
           max-width: 500px;
-          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.2);
           animation: slideUp 0.4s ease-out;
         }
 
         .modal-header {
           padding: 1.5rem;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+          border-bottom: 1px solid rgba(0, 0, 0, 0.05);
           display: flex;
           justify-content: space-between;
           align-items: center;
         }
 
-        .modal-header h3 { font-size: 1.25rem; font-weight: 800; color: #f8fafc; margin: 0; }
-        .modal-close { background: none; border: none; color: #64748b; cursor: pointer; transition: color 0.2s; }
-        .modal-close:hover { color: #f1f5f9; }
+        .modal-header h3 { font-size: 1.25rem; font-weight: 800; color: #0F172A; margin: 0; }
+        .modal-close { background: none; border: none; color: #64748B; cursor: pointer; transition: color 0.2s; }
+        .modal-close:hover { color: #1A1A2E; }
 
         .modal-form { padding: 1.5rem; }
         .form-group { margin-bottom: 1.25rem; }
         .form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-        .form-label { display: block; font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 0.5rem; letter-spacing: 0.05em; }
+        .form-label { display: block; font-size: 0.75rem; font-weight: 700; color: #64748B; text-transform: uppercase; margin-bottom: 0.5rem; letter-spacing: 0.05em; }
         
         .input-field {
           width: 100%;
-          background: rgba(15, 23, 42, 0.6);
-          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: #F9FAFB;
+          border: 1px solid #E5E7EB;
           border-radius: 12px;
           padding: 0.75rem 1rem;
-          color: #f1f5f9;
+          color: #1A1A2E;
           font-size: 0.9rem;
           transition: all 0.2s;
         }
-        .input-field:focus { border-color: #3b82f6; box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1); outline: none; }
+        .input-field:focus { border-color: #2D6A4F; box-shadow: 0 0 0 4px rgba(45, 106, 79, 0.1); outline: none; background: #FFFFFF; }
 
         .checkbox-group { margin-top: 0.5rem; }
-        .checkbox-label { display: flex; align-items: center; gap: 0.75rem; color: #cbd5e1; font-size: 0.9rem; cursor: pointer; }
-        .checkbox-label input { width: 18px; height: 18px; border-radius: 4px; background: rgba(15, 23, 42, 0.6); }
+        .checkbox-label { display: flex; align-items: center; gap: 0.75rem; color: #475569; font-size: 0.9rem; cursor: pointer; }
+        .checkbox-label input { width: 18px; height: 18px; border-radius: 4px; background: #FFFFFF; border: 1px solid #CBD5E1; }
 
         .modal-footer {
           margin-top: 2rem;

@@ -3,28 +3,44 @@ import { useAuth } from '../contexts/AuthContext';
 import { dashboardAPI } from '../services/api';
 import {
   Building2, Users, Shield, UserX,
-  RefreshCw, CheckCircle2, XCircle, BarChart as BarChartIcon
+  RefreshCw, CheckCircle2, XCircle, ArrowUpRight
 } from 'lucide-react';
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  Cell
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell
 } from 'recharts';
 
+// Animated CountUp Component
+const CountUp = ({ end, duration = 1000 }) => {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    let startTime = null;
+    const animate = (currentTime) => {
+      if (!startTime) startTime = currentTime;
+      const progress = Math.min((currentTime - startTime) / duration, 1);
+      // easeOutExpo
+      const easeProgress = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+      setCount(Math.floor(easeProgress * end));
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      }
+    };
+    requestAnimationFrame(animate);
+  }, [end, duration]);
+
+  return <span>{count}</span>;
+};
+
 const AdminDashboard = () => {
-  const { user } = useAuth();
+  const { user, selectedDepartment } = useAuth();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [departments, setDepartments] = useState([]);
 
   const fetchAdminStats = async () => {
     try {
-      const response = await dashboardAPI.getAdminStats();
+      const params = selectedDepartment ? { department_id: selectedDepartment } : {};
+      const response = await dashboardAPI.getAdminStats(params);
       setStats(response.data);
     } catch (error) {
       console.error('Failed to fetch admin stats:', error);
@@ -34,18 +50,40 @@ const AdminDashboard = () => {
   };
 
   useEffect(() => {
-    fetchAdminStats();
+    const fetchDepts = async () => {
+      try {
+        const res = await dashboardAPI.getDepartments();
+        setDepartments(Array.isArray(res.data) ? res.data : []);
+      } catch (err) {
+        console.error('Failed to fetch departments:', err);
+      }
+    };
+    fetchDepts();
   }, []);
 
-  const StatCard = ({ title, value, icon: Icon, color, subtitle }) => (
-    <div className="stat-card">
-      <div className="stat-icon" style={{ backgroundColor: `${color}15`, color }}>
-        <Icon size={24} />
+  useEffect(() => {
+    fetchAdminStats();
+  }, [selectedDepartment]);
+
+  const getContextName = () => {
+    if (!selectedDepartment) return 'System-wide summary';
+    const dept = departments.find(d => String(d.id) === String(selectedDepartment));
+    return `Context: ${dept?.name || 'Selected Department'}`;
+  };
+
+  const DonezoStatCard = ({ title, value, isHero, subtitle, rightIcon }) => (
+    <div className={`donezo-stat-card ${isHero ? 'hero' : 'standard'}`}>
+      <div className="card-top">
+        <p className="card-label">{title}</p>
+        <button className="card-icon-btn">
+          <ArrowUpRight size={16} />
+        </button>
       </div>
-      <div className="stat-info">
-        <p className="stat-label">{title}</p>
-        <p className="stat-value">{value}</p>
-        {subtitle && <p className="stat-subtitle">{subtitle}</p>}
+      <div className="card-middle">
+        <p className="card-value"><CountUp end={value} duration={1500} /></p>
+      </div>
+      <div className="card-bottom">
+        <p className="card-sub">{subtitle}</p>
       </div>
     </div>
   );
@@ -73,59 +111,57 @@ const AdminDashboard = () => {
     );
   }
 
-  // Colors for charts
-  const CHART_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#06b6d4'];
+  const CHART_COLORS = ['#2D6A4F', '#40916C', '#52B788', '#74C69D', '#95D5B2', '#B7E4C7'];
 
   return (
-    <div className="admin-dashboard animate-fade-in">
+    <div className="admin-dashboard">
       <div className="dashboard-header-row">
         <div>
-          <h2 className="page-title">System Overview</h2>
-          <p className="page-subtitle">Administrative Governance & Infrastructure Control</p>
+          <h2 className="page-title">SYSTEM OVERVIEW</h2>
+          <p className="page-subtitle">ADMINISTRATIVE GOVERNANCE & INFRASTRUCTURE CONTROL</p>
         </div>
       </div>
 
-      <div className="stats-grid">
-        <StatCard
+      <div className="kpi-grid">
+        <DonezoStatCard
           title="Total Departments"
           value={stats?.totalDepartments || 0}
-          icon={Building2}
-          color="#3b82f6"
+          isHero={true}
+          subtitle="↑ Active across organization"
         />
-        <StatCard
+        <DonezoStatCard
           title="Total Users"
           value={stats?.totalUsers || 0}
-          icon={Users}
-          color="#8b5cf6"
+          isHero={false}
+          subtitle="↑ Increased from last month"
         />
-        <StatCard
+        <DonezoStatCard
           title="Active Risks"
           value={stats?.activeRisks || 0}
-          icon={Shield}
-          color="#10b981"
-          subtitle="System-wide summary"
+          isHero={false}
+          subtitle={getContextName()}
         />
-        <StatCard
+        <DonezoStatCard
           title="Inactive Users"
           value={stats?.inactiveUsers || 0}
-          icon={UserX}
-          color="#ef4444"
+          isHero={false}
+          subtitle="On Review"
         />
       </div>
 
-      <div className="dashboard-section">
-        <div className="section-header">
-          <h3>Department Summary</h3>
+      <div className="dashboard-section table-section">
+        <div className="section-header-bar">
+          <span>DEPARTMENT SUMMARY</span>
         </div>
         <div className="table-container">
           <table className="admin-table">
             <thead>
               <tr>
-                <th>Department</th>
-                <th>Head</th>
-                <th>Users</th>
-                <th>Active Risks</th>
-                <th>Status</th>
+                <th>DEPARTMENT</th>
+                <th>HEAD</th>
+                <th>USERS</th>
+                <th>ACTIVE RISKS</th>
+                <th>STATUS</th>
               </tr>
             </thead>
             <tbody>
@@ -137,16 +173,16 @@ const AdminDashboard = () => {
                       {dept.head_name || <span className="unassigned">Unassigned</span>}
                     </span>
                   </td>
-                  <td><span className="count-cell">{dept.total_users}</span></td>
-                  <td><span className="count-cell">{dept.active_risks}</span></td>
+                  <td><span className="count-cell users-count">{dept.total_users}</span></td>
+                  <td><span className="count-cell risks-count">{dept.active_risks}</span></td>
                   <td>
                     {dept.is_active ? (
                       <span className="status-badge active">
-                        <CheckCircle2 size={12} /> Active
+                        <CheckCircle2 size={12} strokeWidth={3} /> ACTIVE
                       </span>
                     ) : (
                       <span className="status-badge inactive">
-                        <XCircle size={12} /> Deactivated
+                        <XCircle size={12} strokeWidth={3} /> INACTIVE
                       </span>
                     )}
                   </td>
@@ -160,31 +196,19 @@ const AdminDashboard = () => {
       {stats?.departmentSummary?.length > 0 && (
         <div className="charts-grid">
           <div className="dashboard-section chart-container">
-            <div className="section-header">
-              <div className="header-with-icon">
+            <div className="section-header-bar" style={{ background: '#FFFFFF', borderBottom: '1px solid #F0F0F0' }}>
+              <div className="header-with-icon" style={{ color: '#1A4731' }}>
                 <Shield size={16} />
-                <h3>Active Risks by Department</h3>
+                <span style={{ fontSize: '0.65rem', letterSpacing: '0.18em', fontWeight: 700 }}>Active Risks by Department</span>
               </div>
             </div>
             <div className="chart-body">
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={stats.departmentSummary}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                  <XAxis
-                    dataKey="name"
-                    stroke="#64748b"
-                    fontSize={12}
-                    tickLine={false}
-                    axisLine={false}
-                    interval={0}
-                  />
-                  <YAxis
-                    stroke="#64748b"
-                    fontSize={12}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.05)' }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#F0F0F0" vertical={false} />
+                  <XAxis dataKey="name" stroke="#6B7280" fontSize={11} tickLine={false} axisLine={false} interval={0} />
+                  <YAxis stroke="#6B7280" fontSize={11} tickLine={false} axisLine={false} />
+                  <Tooltip content={<CustomTooltip />} cursor={{ fill: '#F9FAFB' }} />
                   <Bar dataKey="active_risks" name="Active Risks" radius={[4, 4, 0, 0]}>
                     {stats.departmentSummary.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
@@ -196,31 +220,19 @@ const AdminDashboard = () => {
           </div>
 
           <div className="dashboard-section chart-container">
-            <div className="section-header">
-              <div className="header-with-icon">
+            <div className="section-header-bar" style={{ background: '#FFFFFF', borderBottom: '1px solid #F0F0F0' }}>
+              <div className="header-with-icon" style={{ color: '#1A4731' }}>
                 <Users size={16} />
-                <h3>Users by Department</h3>
+                <span style={{ fontSize: '0.65rem', letterSpacing: '0.18em', fontWeight: 700 }}>Users by Department</span>
               </div>
             </div>
             <div className="chart-body">
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={stats.departmentSummary}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                  <XAxis
-                    dataKey="name"
-                    stroke="#64748b"
-                    fontSize={12}
-                    tickLine={false}
-                    axisLine={false}
-                    interval={0}
-                  />
-                  <YAxis
-                    stroke="#64748b"
-                    fontSize={12}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.05)' }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#F0F0F0" vertical={false} />
+                  <XAxis dataKey="name" stroke="#6B7280" fontSize={11} tickLine={false} axisLine={false} interval={0} />
+                  <YAxis stroke="#6B7280" fontSize={11} tickLine={false} axisLine={false} />
+                  <Tooltip content={<CustomTooltip />} cursor={{ fill: '#F9FAFB' }} />
                   <Bar dataKey="total_users" name="Total Users" radius={[4, 4, 0, 0]}>
                     {stats.departmentSummary.map((entry, index) => (
                       <Cell key={`cell-u-${index}`} fill={CHART_COLORS[(index + 2) % CHART_COLORS.length]} />
@@ -237,142 +249,150 @@ const AdminDashboard = () => {
         .admin-dashboard {
           max-width: 1400px;
           margin: 0 auto;
-          padding-bottom: 3rem;
+          padding: 2.5rem;
         }
 
         .dashboard-header-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-end;
-          margin-bottom: 2rem;
+          margin-bottom: 3rem;
         }
 
         .page-title {
-          font-size: 1.875rem;
+          font-family: var(--font-heading);
+          font-size: 2.2rem;
           font-weight: 800;
-          color: #f8fafc;
-          margin: 0;
-          letter-spacing: -0.02em;
+          color: #1A1A2E;
+          margin: 0 0 0.5rem 0;
+          line-height: 1.1;
         }
 
         .page-subtitle {
-          color: #64748b;
-          font-size: 0.875rem;
-          margin-top: 0.25rem;
+          font-size: 0.75rem;
+          letter-spacing: 0.1em;
+          color: #6B7280;
+          margin: 0;
+          text-transform: uppercase;
+          font-weight: 500;
         }
 
-        .stats-grid {
+        .kpi-grid {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
           gap: 1.5rem;
-          margin-bottom: 2.5rem;
+          margin-bottom: 3rem;
         }
 
-        .stat-card {
-          background: rgba(30, 41, 59, 0.3);
-          backdrop-filter: blur(12px);
-          border: 1px solid rgba(255, 255, 255, 0.05);
+        .donezo-stat-card {
           border-radius: 20px;
-          padding: 1.5rem;
+          padding: 24px;
           display: flex;
-          align-items: center;
-          gap: 1.25rem;
+          flex-direction: column;
+          gap: 1rem;
+          transition: transform 0.2s, box-shadow 0.2s;
         }
 
-        .stat-icon {
-          width: 52px;
-          height: 52px;
-          border-radius: 12px;
+        .donezo-stat-card:hover {
+          transform: translateY(-4px);
+        }
+
+        .donezo-stat-card.hero {
+          background: #1A4731;
+          color: white;
+          box-shadow: 0 8px 32px rgba(26,71,49,0.3);
+          border: none;
+        }
+
+        .donezo-stat-card.standard {
+          background: #FFFFFF;
+          color: #1A1A2E;
+          border: 1px solid #F0F0F0;
+          box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+        }
+
+        .card-top {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+
+        .hero .card-label { color: white; }
+        .standard .card-label { color: #6B7280; }
+        .card-label {
+          font-weight: 600;
+          font-size: 0.9rem;
+          margin: 0;
+        }
+
+        .card-icon-btn {
+          width: 32px;
+          height: 32px;
+          border-radius: 50%;
           display: flex;
           align-items: center;
           justify-content: center;
-          flex-shrink: 0;
+          cursor: pointer;
         }
 
-        .stat-label {
-          font-size: 0.75rem;
-          font-weight: 700;
-          text-transform: uppercase;
-          color: #64748b;
-          margin: 0;
-          letter-spacing: 0.05em;
+        .hero .card-icon-btn {
+          background: transparent;
+          border: 1px solid rgba(255,255,255,0.3);
+          color: white;
         }
 
-        .stat-value {
-          font-size: 1.75rem;
+        .standard .card-icon-btn {
+          background: transparent;
+          border: 1px solid #E5E7EB;
+          color: #9CA3AF;
+        }
+
+        .card-value {
+          font-family: var(--font-numeric);
+          font-size: 3.5rem;
           font-weight: 800;
-          color: #f8fafc;
-          margin: 0.125rem 0;
+          margin: 0;
+          line-height: 1;
         }
 
-        .stat-subtitle {
-          font-size: 0.7rem;
-          color: #475569;
+        .hero .card-value { color: white; }
+        .standard .card-value { color: #1A1A2E; }
+
+        .card-sub {
+          font-size: 0.8rem;
+          font-weight: 600;
           margin: 0;
         }
+
+        .hero .card-sub { color: #74C69D; }
+        .standard .card-sub { color: #6B7280; }
 
         .dashboard-section {
-          background: rgba(30, 41, 59, 0.2);
-          border: 1px solid rgba(255, 255, 255, 0.05);
-          border-radius: 24px;
+          background: #FFFFFF;
+          border-radius: 16px;
+          box-shadow: 0 4px 24px rgba(0,0,0,0.04);
+          border: 1px solid #F0F0F0;
+          margin-bottom: 2.5rem;
           overflow: hidden;
-          margin-bottom: 2rem;
         }
 
-        .section-header {
-          padding: 1.25rem 1.5rem;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-          background: rgba(15, 23, 42, 0.2);
-        }
-
-        .section-header h3 {
-          margin: 0;
-          font-size: 0.875rem;
-          font-weight: 700;
-          color: #94a3b8;
+        .section-header-bar {
+          background: #F9FAFB;
+          padding: 12px 20px;
+          font-size: 0.65rem;
+          letter-spacing: 0.18em;
+          color: #9CA3AF;
           text-transform: uppercase;
-          letter-spacing: 0.05em;
+          font-weight: 700;
+          border-bottom: 1px solid #F0F0F0;
         }
 
         .header-with-icon {
           display: flex;
           align-items: center;
-          gap: 0.75rem;
-          color: #64748b;
-        }
-
-        .charts-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
-          gap: 1.5rem;
-        }
-
-        .chart-body {
-          padding: 1.5rem;
-        }
-
-        .custom-tooltip {
-          background: #0f172a;
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          padding: 0.75rem;
-          border-radius: 8px;
-          box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-        }
-
-        .tooltip-label {
-          color: #f8fafc;
-          font-weight: 700;
-          font-size: 0.875rem;
-          margin-bottom: 0.25rem;
-        }
-
-        .tooltip-value {
-          font-size: 0.875rem;
-          font-weight: 600;
+          gap: 0.5rem;
         }
 
         .table-container {
           overflow-x: auto;
+          background: white;
         }
 
         .admin-table {
@@ -383,78 +403,86 @@ const AdminDashboard = () => {
 
         .admin-table th {
           padding: 1rem 1.5rem;
-          font-size: 0.7rem;
-          font-weight: 700;
-          color: #475569;
+          color: #9CA3AF;
+          font-size: 0.65rem;
+          letter-spacing: 0.12em;
           text-transform: uppercase;
-          letter-spacing: 0.05em;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+          font-weight: 700;
+          border-bottom: 1px solid #F0F0F0;
+          background: white;
         }
 
         .admin-table td {
           padding: 1.25rem 1.5rem;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.02);
-          color: #cbd5e1;
+          border-bottom: 1px solid #F9FAFB;
           font-size: 0.875rem;
+          transition: background 0.2s;
         }
 
-        .dept-name-cell {
-          font-weight: 700;
-          color: #f1f5f9;
+        .admin-table tbody tr:hover td {
+          background: #F9FAFB;
         }
 
-        .head-name-cell {
-          color: #94a3b8;
-        }
-
-        .unassigned {
-          color: #475569;
-          font-style: italic;
-          font-size: 0.8rem;
-        }
-
-        .count-cell {
-          font-family: 'JetBrains Mono', monospace;
-          color: #3b82f6;
-          font-weight: 600;
-        }
+        .dept-name-cell { color: #1A1A2E; font-weight: 700; }
+        .unassigned { color: #9CA3AF; font-style: italic; }
+        .count-cell { font-family: var(--font-numeric); font-size: 1rem; }
+        .users-count { color: #2D6A4F; font-weight: 700; }
+        .risks-count { color: #6B7280; font-weight: 600; }
 
         .status-badge {
           display: inline-flex;
           align-items: center;
           gap: 0.375rem;
-          padding: 0.25rem 0.625rem;
-          border-radius: 6px;
-          font-size: 0.75rem;
+          padding: 4px 14px;
+          border-radius: 20px;
+          font-size: 0.65rem;
+          letter-spacing: 0.1em;
           font-weight: 700;
+          text-transform: uppercase;
         }
 
         .status-badge.active {
-          background: rgba(16, 185, 129, 0.1);
-          color: #10b981;
+          background: rgba(45,106,79,0.08);
+          color: #2D6A4F;
+          border: 1.5px solid rgba(45,106,79,0.25);
         }
 
         .status-badge.inactive {
-          background: rgba(239, 68, 68, 0.1);
-          color: #ef4444;
+          background: rgba(230,57,70,0.08);
+          color: #E63946;
+          border: 1.5px solid rgba(230,57,70,0.25);
         }
 
-        .animate-spin {
-          animation: spin 1s linear infinite;
+        .charts-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
+          gap: 1.5rem;
         }
 
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
+        .chart-body { padding: 1.5rem; background: white; }
+
+        .custom-tooltip {
+          background: #FFFFFF;
+          border: 1px solid #E5E7EB;
+          padding: 1rem;
+          border-radius: 8px;
+          box-shadow: 0 4px 20px rgba(0,0,0,0.08);
         }
 
-        .animate-fade-in {
-          animation: fadeIn 0.5s ease-out;
+        .tooltip-label {
+          color: #6B7280;
+          font-weight: 700;
+          font-size: 0.75rem;
+          margin: 0 0 0.25rem 0;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
         }
 
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
+        .tooltip-value {
+          font-size: 1.25rem;
+          font-weight: 800;
+          font-family: var(--font-numeric);
+          margin: 0;
         }
 
         .loading-state {
@@ -463,8 +491,11 @@ const AdminDashboard = () => {
           align-items: center;
           justify-content: center;
           gap: 1rem;
-          color: #64748b;
+          color: #6B7280;
         }
+        
+        .animate-spin { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
     </div>
   );

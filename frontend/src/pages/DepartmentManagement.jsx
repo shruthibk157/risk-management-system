@@ -137,7 +137,7 @@ const DepartmentManagement = () => {
     <div className="department-management-page animate-fade-in">
       {/* section header */}
       <div className="section-header-row">
-        <h2 className="section-title">Organizational Departments</h2>
+        <h2 className="section-title">Departments</h2>
         <button className="btn btn-primary add-dept-btn-refined" onClick={openCreateModal}>
           <Plus size={18} />
           Add Department
@@ -290,6 +290,9 @@ const DepartmentManagement = () => {
         .department-management-page {
           max-width: 1200px;
           margin: 0 auto;
+          padding: 2.5rem;
+          background: #F5F5F5;
+          min-height: 100vh;
           animation: slideUp 0.5s ease-out;
         }
 
@@ -303,83 +306,146 @@ const DepartmentManagement = () => {
           align-items: center;
           justify-content: space-between;
           margin-bottom: 2rem;
-          background: rgba(30, 41, 59, 0.4);
-          backdrop-filter: blur(12px);
-          padding: 1.5rem;
-          border-radius: 20px;
-          border: 1px solid rgba(255, 255, 255, 0.05);
-          gap: 1.5rem;
+          background: linear-gradient(135deg, #1A4731 0%, #2D6A4F 60%, #40916C 100%);
+          border-radius: 16px;
+          padding: 28px 32px;
+          box-shadow: 0 8px 32px rgba(26,71,49,0.25);
         }
 
         .section-title {
-          font-size: 1.5rem;
+          font-family: 'DM Sans', sans-serif;
+          font-size: 1.6rem;
           font-weight: 800;
-          color: #f8fafc;
+          color: #FFFFFF;
           margin: 0;
-          letter-spacing: -0.02em;
         }
 
         .add-dept-btn-refined {
           display: flex;
           align-items: center;
-          gap: 0.75rem;
-          padding: 0.75rem 1.5rem;
-          background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+          background: #FFFFFF;
+          color: #1A4731;
           border: none;
-          border-radius: 12px;
-          color: white;
+          border-radius: 10px;
+          padding: 12px 24px;
           font-weight: 700;
-          font-size: 0.875rem;
-          cursor: pointer;
+          font-size: 0.85rem;
+          letter-spacing: 0.03em;
+          box-shadow: 0 4px 16px rgba(0,0,0,0.15);
           transition: all 0.2s;
-          box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+          cursor: pointer;
+        }
+        .add-dept-btn-refined:hover {
+          background: #F0FDF4;
+          box-shadow: 0 6px 24px rgba(0,0,0,0.2);
+        }
+        .add-dept-btn-refined svg {
+          color: #2D6A4F;
+          font-weight: 800;
+          margin-right: 6px;
         }
 
         .table-container {
-          background: rgba(30, 41, 59, 0.3);
-          backdrop-filter: blur(16px);
-          border-radius: 20px;
-          border: 1px solid rgba(255, 255, 255, 0.05);
+          background: #FFFFFF;
+          border: 1px solid #E5E7EB;
+          border-radius: 16px;
+          box-shadow: 0 2px 12px rgba(0,0,0,0.06);
           overflow: hidden;
-          box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
+          margin-top: 20px;
         }
 
-        .table { width: 100%; border-collapse: collapse; }
+        .table { width: 100%; border-collapse: collapse; text-align: left; }
         .table th {
-          background: rgba(15, 23, 42, 0.4);
-          text-align: left;
-          padding: 1.25rem 1.5rem;
-          color: #94a3b8;
-          font-size: 0.7rem;
-          font-weight: 700;
+          background: #F8FAFB;
+          border-bottom: 2px solid #E5E7EB;
+          padding: 14px 24px;
+          color: #6B7280;
+          font-size: 0.65rem;
+          font-weight: 600;
+          letter-spacing: 0.15em;
           text-transform: uppercase;
-          letter-spacing: 0.05em;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.05);
         }
 
-        .table td { padding: 1.25rem 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.03); color: #cbd5e1; }
+        .table td { 
+          background: #FFFFFF;
+          border-bottom: 1px solid #F3F4F6;
+          padding: 18px 24px;
+          transition: background 0.15s ease;
+          color: #1A1A2E !important;
+        }
         
-        .dept-name { font-weight: 700; color: #f8fafc; font-size: 1rem; }
-        .dept-desc { color: #64748b; font-size: 0.9rem; }
-        .date-text { color: #475569; font-size: 0.85rem; font-family: 'JetBrains Mono', monospace; }
+        .table tbody tr:hover td {
+          background: #F0FDF4;
+        }
+        
+        .dept-name { 
+          color: #1A1A2E !important;
+          font-weight: 700;
+          font-size: 0.95rem;
+          font-family: 'DM Sans', sans-serif;
+        }
+        .dept-head {
+          color: #4B5563 !important;
+
+          font-style: italic;
+          font-size: 0.88rem;
+        }
+        .dept-desc { 
+          color: #4B5563 !important;
+          font-size: 0.88rem;
+        }
+
+        .status-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          padding: 4px 12px;
+          border-radius: 20px;
+          font-size: 0.7rem;
+          font-weight: 600;
+          letter-spacing: 0.06em;
+        }
+        .status-pill.inactive {
+          background: rgba(239,68,68,0.08);
+          color: #DC2626;
+          border: 1.5px solid rgba(239,68,68,0.2);
+        }
+        .status-pill.inactive::before {
+          content: '○';
+          font-size: 7px;
+        }
+        .status-pill.active {
+          background: rgba(16,185,129,0.08);
+          color: #059669;
+          border: 1.5px solid rgba(16,185,129,0.2);
+        }
+        .status-pill.active::before {
+          content: '●';
+          color: #10B981;
+          font-size: 7px;
+        }
 
         .action-buttons { display: flex; align-items: center; gap: 0.5rem; }
         .action-btn {
-          width: 36px;
-          height: 36px;
-          background: rgba(15, 23, 42, 0.4);
-          border: 1px solid rgba(255, 255, 255, 0.05);
-          border-radius: 10px;
-          color: #94a3b8;
-          display: flex;
-          align-items: center;
-          justify-content: center;
+          width: 32px; height: 32px;
+          border-radius: 8px;
+          border: 1.5px solid #E2E8F0;
+          background: #FFFFFF;
+          color: #6B7280;
+          display: flex; align-items: center; justify-content: center;
           cursor: pointer;
-          transition: all 0.2s;
+          transition: all 0.15s;
         }
-        .action-btn:hover { background: rgba(255, 255, 255, 0.1); color: #f1f5f9; transform: translateY(-2px); }
-        .action-btn.edit:hover { color: #3b82f6; border-color: #3b82f6; }
-        .action-btn.delete:hover { color: #ef4444; border-color: #ef4444; }
+        .action-btn.edit:hover {
+          border-color: #2D6A4F;
+          background: rgba(45,106,79,0.06);
+          color: #2D6A4F;
+        }
+        .action-btn.delete:hover {
+          border-color: #EF4444;
+          background: rgba(239,68,68,0.06);
+          color: #EF4444;
+        }
 
         .modal-overlay {
           position: fixed;
@@ -394,24 +460,24 @@ const DepartmentManagement = () => {
         }
 
         .modal-content {
-          background: #1e293b;
-          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: #ffffff;
+          border: 1px solid rgba(0, 0, 0, 0.1);
           border-radius: 24px;
           width: 100%;
           max-width: 500px;
-          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.2);
           animation: slideUp 0.4s ease-out;
         }
 
         .modal-header {
           padding: 1.5rem;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+          border-bottom: 1px solid rgba(0, 0, 0, 0.05);
           display: flex;
           justify-content: space-between;
           align-items: center;
         }
 
-        .modal-header h3 { font-size: 1.25rem; font-weight: 800; color: #f8fafc; margin: 0; }
+        .modal-header h3 { font-size: 1.25rem; font-weight: 800; color: #0f172a; margin: 0; }
         .modal-close { background: none; border: none; color: #64748b; cursor: pointer; transition: color 0.2s; }
         .modal-close:hover { color: #f1f5f9; }
 

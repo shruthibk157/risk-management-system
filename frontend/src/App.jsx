@@ -8,10 +8,11 @@ import RiskList from './pages/RiskList';
 import RiskForm from './pages/RiskForm';
 import UserManagement from './pages/UserManagement';
 import DepartmentManagement from './pages/DepartmentManagement';
-import LandingPage from './pages/LandingPage';
+
 import AskMe from './pages/AskMe';
 import KnowledgeBase from './pages/KnowledgeBase';
 import AdminDashboard from './pages/AdminDashboard';
+import PerformanceMonitoring from './pages/PerformanceMonitoring';
 import Layout from './components/Layout';
 
 const ProtectedRoute = ({ children, showBackButton = false, backButtonText = 'Back to Dashboard', allowedRoles = [] }) => {
@@ -76,7 +77,7 @@ const AppRoutes = () => {
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/dashboard" /> : <Login />} />
 
-      <Route path="/" element={<LandingPage />} />
+      <Route path="/" element={<Navigate to="/login" replace />} />
       <Route path="/dashboard" element={
         <ProtectedRoute>
           {user?.role === 'admin' ? <Navigate to="/admin/dashboard" replace /> : <Dashboard />}
@@ -141,13 +142,18 @@ const AppRoutes = () => {
         </ProtectedRoute>
       } />
 
-      <Route path="/knowledge-base" element={
+      <Route path="/monitoring" element={
+        <ProtectedRoute allowedRoles={OPERATIONAL_ROLES}>
+          <PerformanceMonitoring />
+        </ProtectedRoute>
+      } />
+      <Route path="/knowledge" element={
         <ProtectedRoute>
           <KnowledgeBase />
         </ProtectedRoute>
       } />
 
-      <Route path="*" element={<Navigate to="/" />} />
+      <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
   );
 };

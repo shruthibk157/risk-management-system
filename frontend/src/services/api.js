@@ -61,6 +61,11 @@ export const dashboardAPI = {
 export const aiAPI = {
   articulateRisk: (data) => api.post('/ai/articulate-risk', data),
   generateRisk: (data) => api.post('/ai/generate-risk', data),
+  validateRequirement: (data) => api.post('/ai/validate-requirement', data),
+  validateDescription: (data) => api.post('/ai/validate-description', data),
+  validateScoring: (data) => api.post('/ai/validate-scoring', data),
+  analyzeRisk: (data) => api.post('/ai/analyze-risk', data),
+  logAction: (data) => api.post('/ai/log-action', data),
 };
 
 

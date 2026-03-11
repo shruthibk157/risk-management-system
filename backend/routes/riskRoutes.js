@@ -10,8 +10,13 @@ const {
   deleteRisk,
   createRiskReview,
   getRiskReviews,
-  getNextSlNo
+  getNextSlNo,
+  getNextId,
+  resequenceRisks
 } = require('../controllers/riskController');
+
+router.get('/debug-data', getDebugData);
+router.post('/resequence', authenticateToken, resequenceRisks);
 
 router.get('/next-sl-no/:departmentId', authenticateToken, getNextSlNo);
 router.get('/next-id', authenticateToken, getNextId);

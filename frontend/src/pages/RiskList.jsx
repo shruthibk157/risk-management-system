@@ -4,11 +4,11 @@ import { useAuth } from '../contexts/AuthContext';
 import { risksAPI } from '../services/api';
 import {
   FileText, Search, Edit, Trash2, Eye,
-  AlertTriangle, Shield, RefreshCw, Plus
+  AlertTriangle, Shield, RefreshCw, Plus, Filter, ChevronRight, MoreHorizontal
 } from 'lucide-react';
 
 const RiskList = () => {
-  const { selectedDepartment, setSelectedDepartment, user } = useAuth();
+  const { selectedDepartment, user } = useAuth();
   const navigate = useNavigate();
   const [risks, setRisks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -42,9 +42,7 @@ const RiskList = () => {
     }
   }, [debouncedSearch, selectedDepartment, statusFilter]);
 
-  useEffect(() => {
-    fetchRisks();
-  }, [fetchRisks]);
+  useEffect(() => { fetchRisks(); }, [fetchRisks]);
 
   const handleDelete = async (id, riskId) => {
     if (window.confirm(`Are you sure you want to delete risk ${riskId}?`)) {
@@ -57,461 +55,331 @@ const RiskList = () => {
     }
   };
 
-  const getRPNBadgeColor = (rpn) => {
-    if (rpn <= 25) return 'green';
-    if (rpn <= 75) return 'yellow';
-    return 'red';
+  const StatusBadge = ({ status }) => {
+    const statusLower = status?.toLowerCase() || 'open';
+    const className = statusLower.replace(' ', '-');
+    return <span className={`status-pill ${className}`}>{status}</span>;
   };
 
-  const getRPNLabel = (rpn) => {
-    if (rpn <= 25) return 'Acceptable';
-    if (rpn <= 75) return 'Moderate';
-    return 'Significant';
+  const RiskLevelBadge = ({ rpn }) => {
+    let level = 'low';
+    if (rpn > 75) level = 'critical';
+    else if (rpn > 50) level = 'high';
+    else if (rpn > 25) level = 'medium';
+
+    return <span className={`risk-pill ${level}`}>{level.charAt(0).toUpperCase() + level.slice(1)}</span>;
   };
 
-  const RPNBadge = ({ rpn }) => {
-    const color = getRPNBadgeColor(rpn);
-    return (
-      <div className={`rpn-badge rpn-badge-${color}`}>
-        <span className="rpn-number">{rpn}</span>
+  const RiskStats = () => (
+    <div className="risk-stats-row">
+      <div className="risk-mini-card">
+        <div className="mini-card-icon open"><AlertTriangle size={18} /></div>
+        <div className="mini-card-info">
+          <span className="mini-label">Open Issues</span>
+          <span className="mini-value">{risks.filter(r => r.status === 'Open').length}</span>
+        </div>
       </div>
-    );
-  };
-
-  const getStatusBadge = (status) => {
-    const statusConfig = {
-      'Open': { class: 'badge-blue', icon: AlertTriangle },
-      'Under Treatment': { class: 'badge-yellow', icon: RefreshCw },
-      'Mitigated': { class: 'badge-green', icon: Shield },
-      'Closed': { class: 'badge-secondary', icon: Shield }
-    };
-
-    const config = statusConfig[status] || statusConfig['Open'];
-    const Icon = config.icon;
-
-    return (
-      <span className={`badge ${config.class}`}>
-        <Icon size={12} />
-        {status}
-      </span>
-    );
-  };
+      <div className="risk-mini-card">
+        <div className="mini-card-icon progress"><RefreshCw size={18} /></div>
+        <div className="mini-card-info">
+          <span className="mini-label">In Progress</span>
+          <span className="mini-value">{risks.filter(r => r.status === 'Under Treatment').length}</span>
+        </div>
+      </div>
+      <div className="risk-mini-card">
+        <div className="mini-card-icon mitigated"><Shield size={18} /></div>
+        <div className="mini-card-info">
+          <span className="mini-label">Mitigated</span>
+          <span className="mini-value">{risks.filter(r => r.status === 'Mitigated').length}</span>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="risk-list-page animate-fade-in">
-      <div className="list-controls-container">
-        <h2 className="section-title">Active Risk Register</h2>
-        <div className="list-actions">
-          <div className="search-box-refined">
-            <Search size={18} />
-            <input
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search by ID, description, or owner..."
-            />
-          </div>
-          <button
-            className="btn btn-secondary icon-only refresh-btn-refined"
-            onClick={() => fetchRisks(true)}
-            disabled={isRefreshing}
-            title="Refresh List"
-          >
-            <RefreshCw size={18} className={isRefreshing ? 'animate-spin' : ''} />
+    <div className="risk-list-page">
+      <div className="risk-list-header">
+        <div className="header-left">
+          <h1>Risk Register</h1>
+          <p>Total {risks.length} active risks found</p>
+        </div>
+        <div className="header-right">
+          <button className="btn-add-risk" onClick={() => navigate('/risks/new')}>
+            <Plus size={18} />
+            Add New Risk
           </button>
         </div>
       </div>
 
-      {(statusFilter || debouncedSearch) && (
-        <div className="active-filters-row animate-fade-in">
-          <div className="filter-pill-container">
-            {statusFilter && (
-              <span className="filter-pill">
-                Status: <strong>{statusFilter}</strong>
-                <button onClick={() => setStatusFilter(null)} className="clear-filter">
-                  <X size={14} />
-                </button>
-              </span>
-            )}
-            {debouncedSearch && (
-              <span className="filter-pill">
-                Search: <strong>{debouncedSearch}</strong>
-                <button onClick={() => setSearchTerm('')} className="clear-filter">
-                  <X size={14} />
-                </button>
-              </span>
-            )}
-            <button className="clear-all-link" onClick={() => { setStatusFilter(null); setSearchTerm(''); }}>
-              Clear all
+      <RiskStats />
+
+      <div className="risk-table-container">
+        <div className="table-controls">
+          <div className="search-box">
+            <Search size={18} />
+            <input
+              type="text"
+              placeholder="Search risks, owners, or IDs..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+          <div className="filter-group">
+            <button className="btn-filter">
+              <Filter size={18} />
+              Filters
             </button>
           </div>
         </div>
-      )}
 
-      {/* Table */}
-      <div className="table-container">
-        {loading ? (
-          <div className="loading-state">
-            <RefreshCw size={24} className="animate-spin" />
-            <span>Loading risks...</span>
-          </div>
-        ) : (
-          <table className="table">
+        <div className="table-wrapper">
+          <table className="risk-table">
             <thead>
               <tr>
-                <th>SL No</th>
+                <th>Risk ID</th>
                 <th>Description</th>
                 <th>Department</th>
-                <th>RPN</th>
+                <th>Owner</th>
                 <th>Level</th>
                 <th>Status</th>
-                <th>Actions</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
-              {risks.map(risk => (
-                <tr key={risk.id} className="risk-row">
-                  <td className="risk-id">
-                    {risk.sl_no}
-                  </td>
-                  <td className="risk-desc">
-                    <div className="desc-main">{risk.risk_description}</div>
-                    <div className="desc-sub">{risk.potential_failure_mode}</div>
-                  </td>
-                  <td className="risk-dept">
-                    <span className="dept-name">{risk.department_name}</span>
-                  </td>
-                  <td className="risk-rpn">
-                    <RPNBadge rpn={risk.rpn} />
-                  </td>
-                  <td className="risk-level">
-                    <span className={`level-badge ${risk.rpn >= 27 ? 'significant' : 'acceptable'}`}>
-                      {risk.rpn >= 27 ? 'S' : 'A'}
-                    </span>
-                  </td>
-                  <td
-                    className="risk-status filterable"
-                    onClick={() => {
-                      setStatusFilter(risk.status);
-                      if (user?.role === 'admin') {
-                        setSelectedDepartment(null);
-                      }
-                    }}
-                    style={{ cursor: 'pointer' }}
-                    title={user?.role === 'admin' ? `Show all ${risk.status} risks` : `Filter by ${risk.status}`}
-                  >
-                    {getStatusBadge(risk.status)}
-                  </td>
-                  <td className="risk-actions">
-                    <button
-                      onClick={() => navigate(`/risks/${risk.id}/view`)}
-                      className="action-btn view"
-                      title="View Details"
-                    >
-                      <Eye size={16} />
-                    </button>
-                    <button
-                      onClick={() => navigate(`/risks/${risk.id}/edit`)}
-                      className="action-btn edit"
-                      title="Edit"
-                    >
-                      <Edit size={16} />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(risk.id, risk.risk_id)}
-                      className="action-btn delete"
-                      title="Delete"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+              {loading ? (
+                <tr>
+                  <td colSpan="7" className="loading-row">
+                    <RefreshCw className="animate-spin" />
+                    <span>Loading risk data...</span>
                   </td>
                 </tr>
-              ))}
+              ) : risks.length === 0 ? (
+                <tr>
+                  <td colSpan="7" className="empty-row">No risks found matching your criteria.</td>
+                </tr>
+              ) : (
+                risks.map((risk) => (
+                  <tr key={risk.id} className="risk-row">
+                    <td className="risk-id-cell">#{risk.risk_id}</td>
+                    <td className="risk-desc-cell">
+                      <div className="risk-desc-text">{risk.risk_description}</div>
+                      <div className="requirement-tag">{risk.requirement_process_area}</div>
+                    </td>
+                    <td>{risk.Department?.name}</td>
+                    <td className="owner-cell">
+                      <div className="avatar">{risk.User?.name?.charAt(0)}</div>
+                      <span>{risk.User?.name}</span>
+                    </td>
+                    <td><RiskLevelBadge rpn={risk.rpn} /></td>
+                    <td><StatusBadge status={risk.status} /></td>
+                    <td className="actions-cell">
+                      <div className="action-btns">
+                        <button title="View" onClick={() => navigate(`/risks/${risk.id}`)}><Eye size={16} /></button>
+                        <button title="Edit" onClick={() => navigate(`/risks/edit/${risk.id}`)}><Edit size={16} /></button>
+                        <button title="Delete" className="delete" onClick={() => handleDelete(risk.id, risk.risk_id)}><Trash2 size={16} /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
-        )}
-
-        {!loading && risks.length === 0 && (
-          <div className="empty-state">
-            <div className="empty-state-icon">
-              <FileText size={32} />
-            </div>
-            <h3>No risks found</h3>
-            <p>Start by adding a new risk entry to the register.</p>
-            <button
-              className="btn btn-primary"
-              onClick={() => navigate('/risks/new')}
-              style={{ marginTop: '1rem' }}
-            >
-              <Plus size={16} />
-              Add Risk
-            </button>
-          </div>
-        )}
+        </div>
       </div>
 
       <style>{`
         .risk-list-page {
-          max-width: 1400px;
-          margin: 0 auto;
-          animation: slideUp 0.5s ease-out;
+          padding: 2.5rem;
+          background: var(--bg-app);
+          min-height: calc(100vh - 70px);
         }
 
-        @keyframes slideUp {
-          from { opacity: 0; transform: translateY(20px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-
-        .list-controls-container {
+        .risk-list-header {
           display: flex;
-          align-items: center;
           justify-content: space-between;
+          align-items: center;
           margin-bottom: 2rem;
-          background: rgba(30, 41, 59, 0.4);
-          backdrop-filter: blur(12px);
-          padding: 1.5rem;
-          border-radius: 20px;
-          border: 1px solid rgba(255, 255, 255, 0.05);
-          gap: 1.5rem;
         }
 
-        .section-title {
-          font-size: 1.5rem;
+        .header-left h1 {
+          font-family: var(--font-heading);
+          font-size: 2rem;
           font-weight: 800;
-          color: #f8fafc;
-          margin: 0;
-          letter-spacing: -0.02em;
+          color: var(--text-dark);
+          margin-bottom: 0.25rem;
         }
 
-        .list-actions {
-          display: flex;
-          align-items: center;
-          gap: 1rem;
-        }
+        .header-left p { color: var(--text-muted); font-size: 1rem; }
 
-        .search-box-refined {
-          width: 320px;
-          display: flex;
-          align-items: center;
-          gap: 0.75rem;
-          background: rgba(15, 23, 42, 0.6);
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 12px;
-          padding: 0.625rem 1rem;
-          transition: all 0.2s;
-        }
-
-        .search-box-refined:focus-within {
-          border-color: #3b82f6;
-          box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
-        }
-
-        .search-box-refined svg { color: #64748b; }
-        .search-box-refined input {
-          flex: 1;
-          background: transparent;
-          border: none;
-          color: #f1f5f9;
-          font-size: 0.9rem;
-          outline: none;
-        }
-
-        .refresh-btn-refined {
-          width: 42px;
-          height: 42px;
-          background: rgba(15, 23, 42, 0.4);
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 10px;
-          color: #94a3b8;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transition: all 0.2s;
-        }
-        .refresh-btn-refined:hover { color: #3b82f6; border-color: #3b82f6; background: rgba(59, 130, 246, 0.1); }
-
-        .table-container {
-          background: rgba(30, 41, 59, 0.3);
-          backdrop-filter: blur(16px);
-          border-radius: 20px;
-          border: 1px solid rgba(255, 255, 255, 0.05);
-          overflow: hidden;
-          box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
-        }
-
-        .table { width: 100%; border-collapse: collapse; }
-        .table th {
-          background: rgba(15, 23, 42, 0.4);
-          text-align: left;
-          padding: 1.25rem 1.5rem;
-          color: #94a3b8;
-          font-size: 0.7rem;
-          font-weight: 700;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        }
-
-        .table td { padding: 1.25rem 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.03); color: #cbd5e1; vertical-align: middle; }
-        .risk-row:hover { background: rgba(255, 255, 255, 0.02); }
-        
-        .mono-text { font-family: 'JetBrains Mono', monospace; font-weight: 700; color: #3b82f6; font-size: 0.8rem; background: rgba(59, 130, 246, 0.1); padding: 0.25rem 0.5rem; border-radius: 4px; }
-        
-        .desc-main { font-weight: 600; color: #f1f5f9; margin-bottom: 0.25rem; font-size: 0.95rem; }
-        .desc-sub { font-size: 0.8rem; color: #64748b; }
-
-        .dept-name { background: rgba(148, 163, 184, 0.1); color: #94a3b8; padding: 0.25rem 0.625rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600; }
-
-        .rpn-badge {
-          display: inline-flex;
-          flex-direction: column;
-          align-items: center;
-          padding: 0.5rem 1rem;
-          border-radius: 12px;
-          min-width: 80px;
-        }
-        .rpn-badge-green { background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); }
-        .rpn-badge-yellow { background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.2); }
-        .rpn-badge-red { background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); box-shadow: 0 0 15px rgba(239, 68, 68, 0.1); }
-
-        .rpn-number { font-size: 1.125rem; font-weight: 800; }
-        .rpn-text { font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.8; }
-
-        .level-badge {
-          width: 32px;
-          height: 32px;
+        .btn-add-risk {
+          background: var(--accent-blue);
+          color: white;
+          padding: 0.75rem 1.5rem;
           border-radius: 8px;
+          font-weight: 600;
           display: flex;
-          align-items: center;
-          justify-content: center;
-          font-weight: 800;
-          font-size: 0.8rem;
-        }
-        .level-badge.significant { background: #ef4444; color: white; box-shadow: 0 0 12px rgba(239, 68, 68, 0.4); }
-        .level-badge.acceptable { background: #10b981; color: white; }
-
-        .badge {
-          display: inline-flex;
           align-items: center;
           gap: 0.5rem;
-          padding: 0.4rem 0.75rem;
+          cursor: pointer;
+          border: none;
+          transition: transform 0.2s, opacity 0.2s;
+        }
+
+        .btn-add-risk:hover { transform: translateY(-2px); opacity: 0.9; }
+
+        /* Risk Mini Cards */
+        .risk-stats-row {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 1.5rem;
+          margin-bottom: 2.5rem;
+        }
+
+        .risk-mini-card {
+          background: white;
+          padding: 1.25rem;
+          border-radius: 12px;
+          border: 1px solid var(--border-card);
+          display: flex;
+          align-items: center;
+          gap: 1.25rem;
+          box-shadow: var(--shadow-card);
+        }
+
+        .mini-card-icon {
+          width: 48px;
+          height: 48px;
+          border-radius: 10px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .mini-card-icon.open { background: #fef2f2; color: #ef4444; }
+        .mini-card-icon.progress { background: #fffbeb; color: #f59e0b; }
+        .mini-card-icon.mitigated { background: #ecfdf5; color: #10b981; }
+
+        .mini-label { display: block; color: var(--text-muted); font-size: 0.875rem; font-weight: 600; }
+        .mini-value { display: block; font-size: 1.5rem; font-weight: 800; color: var(--text-dark); }
+
+        /* Table Container */
+        .risk-table-container {
+          background: white;
+          border-radius: 12px;
+          border: 1px solid var(--border-card);
+          box-shadow: var(--shadow-card);
+          overflow: hidden;
+        }
+
+        .table-controls {
+          padding: 1.25rem 1.5rem;
+          display: flex;
+          justify-content: space-between;
+          border-bottom: 1px solid var(--border-card);
+          background: #fcfcfd;
+        }
+
+        .search-box {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          background: white;
+          border: 1px solid var(--border-card);
+          padding: 0.5rem 1rem;
           border-radius: 8px;
+          width: 320px;
+          color: var(--text-muted);
+        }
+
+        .search-box input {
+          border: none;
+          outline: none;
+          width: 100%;
+          font-size: 0.875rem;
+        }
+
+        .btn-filter {
+          background: white;
+          border: 1px solid var(--border-card);
+          padding: 0.5rem 1rem;
+          border-radius: 8px;
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          color: var(--text-dark);
+          font-size: 0.875rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+
+        /* Risk Table */
+        .risk-table { width: 100%; border-collapse: collapse; }
+        .risk-table th {
+          text-align: left;
+          padding: 1rem 1.5rem;
+          background: #f9fafb;
           font-size: 0.75rem;
           font-weight: 700;
+          color: var(--text-muted);
+          text-transform: uppercase;
+          border-bottom: 1px solid var(--border-card);
         }
-        .badge-blue { background: rgba(59, 130, 246, 0.1); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.2); }
-        .badge-yellow { background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.2); }
-        .badge-green { background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); }
-        .badge-secondary { background: rgba(148, 163, 184, 0.1); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.2); }
 
-        .risk-actions { display: flex; align-items: center; gap: 0.5rem; }
-        .action-btn {
-          width: 36px;
-          height: 36px;
-          background: rgba(15, 23, 42, 0.4);
-          border: 1px solid rgba(255, 255, 255, 0.05);
-          border-radius: 10px;
-          color: #94a3b8;
+        .risk-row td { padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border-card); vertical-align: middle; }
+        .risk-row:hover { background: #fcfcfd; }
+
+        .risk-id-cell { font-family: var(--font-numeric); font-weight: 700; color: var(--accent-blue); }
+        .risk-desc-cell { max-width: 400px; }
+        .risk-desc-text { font-weight: 600; color: var(--text-dark); margin-bottom: 0.25rem; font-size: 0.9375rem; }
+        .requirement-tag { font-size: 0.75rem; color: var(--text-muted); }
+
+        .owner-cell { display: flex; align-items: center; gap: 0.75rem; }
+        .avatar {
+          width: 28px;
+          height: 28px;
+          background: #e5e7eb;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 0.75rem;
+          font-weight: 700;
+          color: var(--text-muted);
+        }
+
+        .risk-pill { padding: 4px 12px; border-radius: 999px; font-size: 0.75rem; font-weight: 700; }
+        .risk-pill.critical { background: #fee2e2; color: #ef4444; }
+        .risk-pill.high { background: #ffedd5; color: #f97316; }
+        .risk-pill.medium { background: #fef3c7; color: #f59e0b; }
+        .risk-pill.low { background: #d1fae5; color: #10b981; }
+
+        .status-pill { padding: 4px 12px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
+        .status-pill.mitigated { background: #ecfdf5; color: #059669; }
+        .status-pill.under-treatment { background: #fffbeb; color: #d97706; }
+        .status-pill.open { background: #fef2f2; color: #dc2626; }
+        .status-pill.closed { background: #f3f4f6; color: #4b5563; }
+
+        .action-btns { display: flex; gap: 0.5rem; }
+        .action-btns button {
+          width: 32px;
+          height: 32px;
+          border-radius: 6px;
+          border: 1px solid var(--border-card);
+          background: white;
+          color: var(--text-muted);
           display: flex;
           align-items: center;
           justify-content: center;
           cursor: pointer;
           transition: all 0.2s;
         }
-        .action-btn:hover { background: rgba(255, 255, 255, 0.1); color: #f1f5f9; transform: translateY(-2px); }
+        .action-btns button:hover { border-color: var(--accent-blue); color: var(--accent-blue); background: #f0f7ff; }
+        .action-btns button.delete:hover { border-color: #ef4444; color: #ef4444; background: #fef2f2; }
 
-        .action-btn.edit:hover { color: #f59e0b; border-color: #f59e0b; }
-        .action-btn.delete:hover { color: #ef4444; border-color: #ef4444; }
-        .action-btn.view:hover { color: #3b82f6; border-color: #3b82f6; }
+        .loading-row { text-align: center; padding: 4rem !important; color: var(--text-muted); font-weight: 600; }
+        .animate-spin { animation: spin 1s linear infinite; margin-right: 0.75rem; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
-
-        .loading-state, .empty-state {
-          padding: 5rem 2rem;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 1.5rem;
-          color: #64748b;
-        }
-        .empty-state h3 { color: #f1f5f9; margin: 0; }
-        
-        @media (max-width: 1024px) {
-          .list-controls-container { flex-direction: column; align-items: stretch; }
-          .table-container { overflow-x: auto; }
-          .table { min-width: 1000px; }
-        }
-
-        .active-filters-row {
-          margin-bottom: 1.5rem;
-          padding: 0.5rem 0;
-          animation: slideDown 0.3s ease-out;
-        }
-
-        @keyframes slideDown {
-          from { opacity: 0; transform: translateY(-10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-
-        .filter-pill-container {
-          display: flex;
-          align-items: center;
-          gap: 1rem;
-          flex-wrap: wrap;
-        }
-
-        .filter-pill {
-          display: inline-flex;
-          align-items: center;
-          gap: 0.75rem;
-          padding: 0.4rem 0.75rem;
-          background: rgba(59, 130, 246, 0.1);
-          border: 1px solid rgba(59, 130, 246, 0.2);
-          border-radius: 8px;
-          color: #94a3b8;
-          font-size: 0.8rem;
-        }
-
-        .filter-pill strong {
-          color: #3b82f6;
-        }
-
-        .clear-filter {
-          background: none;
-          border: none;
-          color: #64748b;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          padding: 2px;
-          border-radius: 4px;
-          transition: all 0.2s;
-        }
-
-        .clear-filter:hover {
-          background: rgba(59, 130, 246, 0.2);
-          color: #f1f5f9;
-        }
-
-        .clear-all-link {
-          background: none;
-          border: none;
-          color: #64748b;
-          font-size: 0.75rem;
-          font-weight: 600;
-          text-decoration: underline;
-          cursor: pointer;
-          padding: 0.5rem;
-        }
-
-        .clear-all-link:hover {
-          color: #3b82f6;
-        }
-
-        .risk-status.filterable:hover {
-          filter: brightness(1.2);
-          transform: scale(1.02);
-          transition: all 0.2s;
-        }
+        .empty-row { text-align: center; padding: 4rem !important; color: var(--text-muted); font-style: italic; }
       `}</style>
     </div>
   );

@@ -102,18 +102,23 @@ const createRisk = async (req, res) => {
 
     const [result] = await pool.query(
       `INSERT INTO risks (
-        department_id, risk_id, process_function, risk_description,
+        department_id, risk_id, sl_no, date_raised, process_function, risk_description,
         potential_failure_mode, potential_effects, severity, potential_causes,
         current_controls_prevention, occurrence, current_controls_detection, detection,
         rpn, risk_classification, recommended_actions, responsibility_owner,
-        target_completion_date, created_by, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        target_completion_date, actual_completion_date, status, severity_after,
+        occurrence_after, detection_after, residual_rpn, residual_classification,
+        review_date, is_ai_assisted, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        department_id, finalRiskId, process_function, risk_description,
+        department_id, finalRiskId, req.body.sl_no, req.body.date_raised, process_function, risk_description,
         potential_failure_mode, potential_effects, severity, potential_causes,
         current_controls_prevention, occurrence, current_controls_detection, detection,
         req.body.rpn, req.body.risk_classification, recommended_actions, req.body.responsibility_owner,
-        req.body.target_completion_date, req.user.id, 'Open'
+        req.body.target_completion_date, req.body.actual_completion_date, req.body.status || 'Open',
+        req.body.severity_after, req.body.occurrence_after, req.body.detection_after,
+        req.body.residual_rpn, req.body.residual_classification, req.body.review_date,
+        req.body.is_ai_assisted, req.user.id
       ]
     );
     const [newRisk] = await pool.query('SELECT * FROM risks WHERE id = ?', [result.insertId]);
@@ -132,12 +137,13 @@ const getNextSlNo = async (req, res) => {
       return res.status(400).json({ error: 'Department ID is required' });
     }
 
-    const [result] = await pool.query(
-      'SELECT MAX(sl_no) as max_sl FROM risks WHERE department_id = ?',
+    // Since we now re-sequence risks, the next SL No is simply count + 1
+    const [countResult] = await pool.query(
+      'SELECT COUNT(*) as count FROM risks WHERE department_id = ?',
       [departmentId]
     );
 
-    const nextSlNo = (result[0].max_sl || 0) + 1;
+    const nextSlNo = countResult[0].count + 1;
     res.json({ next_sl_no: nextSlNo });
   } catch (error) {
     console.error('Get next sl_no error:', error);
@@ -198,6 +204,7 @@ const updateRisk = async (req, res) => {
     await pool.query(
       `UPDATE risks SET
         risk_id = ?,
+        date_raised = ?,
         process_function = ?,
         risk_description = ?,
         potential_failure_mode = ?,
@@ -208,14 +215,35 @@ const updateRisk = async (req, res) => {
         occurrence = ?,
         current_controls_detection = ?,
         detection = ?,
+        rpn = ?,
+        risk_classification = ?,
         recommended_actions = ?,
+        responsibility_owner = ?,
+        target_completion_date = ?,
+        actual_completion_date = ?,
+        status = ?,
+        severity_after = ?,
+        occurrence_after = ?,
+        detection_after = ?,
+        residual_rpn = ?,
+        residual_classification = ?,
+        review_date = ?,
+        is_ai_assisted = ?,
         action_status_results = ?,
         updated_by = ?,
         updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [req.body.risk_id, process_function, risk_description, potential_failure_mode, potential_effects, severity,
-        potential_causes, current_controls_prevention, occurrence, current_controls_detection,
-        detection, recommended_actions, action_status_results, req.user.id, id]
+      [
+        req.body.risk_id, req.body.date_raised, process_function, risk_description,
+        potential_failure_mode, potential_effects, severity, potential_causes,
+        current_controls_prevention, occurrence, current_controls_detection, detection,
+        req.body.rpn, req.body.risk_classification, recommended_actions,
+        req.body.responsibility_owner, req.body.target_completion_date,
+        req.body.actual_completion_date, req.body.status, req.body.severity_after,
+        req.body.occurrence_after, req.body.detection_after, req.body.residual_rpn,
+        req.body.residual_classification, req.body.review_date, req.body.is_ai_assisted,
+        action_status_results, req.user.id, id
+      ]
     );
 
     const [updatedRisk] = await pool.query('SELECT * FROM risks WHERE id = ?', [id]);
@@ -319,6 +347,38 @@ const getRiskReviews = async (req, res) => {
   }
 };
 
+const resequenceRisks = async (req, res) => {
+  try {
+    const { departmentId } = req.body;
+    if (!departmentId) return res.status(400).json({ error: 'Department ID required' });
+
+    const [risks] = await pool.query(
+      'SELECT id FROM risks WHERE department_id = ? ORDER BY created_at ASC',
+      [departmentId]
+    );
+
+    for (let i = 0; i < risks.length; i++) {
+      await pool.query('UPDATE risks SET sl_no = ? WHERE id = ?', [i + 1, risks[i].id]);
+    }
+
+    res.json({ message: `Resequenced ${risks.length} risks for department ${departmentId}` });
+  } catch (error) {
+    console.error('Resequence error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+const getDebugData = async (req, res) => {
+  try {
+    const [schema] = await pool.query('DESCRIBE risks');
+    const [risks] = await pool.query('SELECT * FROM risks');
+    const [departments] = await pool.query('SELECT * FROM departments');
+    res.json({ schema, risks, departments });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 module.exports = {
   getAllRisks,
   getRiskById,
@@ -328,5 +388,7 @@ module.exports = {
   createRiskReview,
   getRiskReviews,
   getNextSlNo,
-  getNextId
+  getNextId,
+  resequenceRisks,
+  getDebugData
 };

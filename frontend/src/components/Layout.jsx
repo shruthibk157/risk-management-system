@@ -1,29 +1,47 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { dashboardAPI } from '../services/api';
 import {
-  LayoutDashboard,
-  FileText,
-  LogOut,
-  Shield,
-  Menu,
-  X,
-  MessageSquare,
-  Book,
-  ChevronLeft,
-  ChevronRight,
-  ChevronDown,
-  Users,
-  Building2,
-  Bell,
-  Search,
-  Plus,
-  UploadCloud,
-  Cpu,
-  Zap
+  Activity, Shield, FileText, MessageSquare, LogOut, Menu,
+  ChevronDown, ChevronLeft, ChevronRight, Target, Building2, Users,
+  Search, Bell, Command, LayoutDashboard
 } from 'lucide-react';
 import CompanyLogo from './CompanyLogo';
+
+const Tooltip = ({ content, disabled, children, wrapperStyle }) => {
+  const [show, setShow] = useState(false);
+  const [coords, setCoords] = useState({ top: 0, left: 0 });
+
+  const handleMouseEnter = (e) => {
+    if (disabled) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    setCoords({
+      top: rect.top + rect.height / 2,
+      left: 68
+    });
+    setShow(true);
+  };
+
+  return (
+    <div
+      className="tooltip-wrapper"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={() => setShow(false)}
+      style={{ display: 'flex', width: '100%', justifyContent: 'center', ...wrapperStyle }}
+    >
+      {children}
+      {show && !disabled && (
+        <div className="sidebar-tooltip" style={{
+          top: coords.top,
+          left: coords.left,
+        }}>
+          {content}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const Layout = ({ children }) => {
   const { user, logout, selectedDepartment, setSelectedDepartment } = useAuth();
@@ -31,7 +49,6 @@ const Layout = ({ children }) => {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [departmentsExpanded, setDepartmentsExpanded] = useState(true);
   const [departmentList, setDepartmentList] = useState([]);
 
   useEffect(() => {
@@ -52,451 +69,666 @@ const Layout = ({ children }) => {
     navigate('/login');
   };
 
-  const isActive = (href) => {
-    return location.pathname === href || (href !== '/' && location.pathname.startsWith(href));
-  };
+  const isAdmin = user?.role?.toLowerCase() === 'admin';
 
-  const handleDepartmentSelect = (deptId) => {
-    setSelectedDepartment(deptId);
-    if (window.innerWidth < 768) {
-      setMobileMenuOpen(false);
-    }
-  };
-
-  const mainNavigation = user?.role?.toLowerCase() === 'admin'
+  const mainNavigation = isAdmin
     ? [
-      { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
+      { name: 'Dashboard', href: '/admin/dashboard', icon: Activity },
       { name: 'Departments', href: '/admin/departments', icon: Building2 },
       { name: 'Users', href: '/admin/users', icon: Users },
     ]
     : [
-      { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-      { name: 'Risk Register', href: '/risks', icon: FileText },
-      { name: 'Knowledge Base', href: '/knowledge-base', icon: Book },
-      { name: 'Neural Chat', href: '/ask-me', icon: Cpu },
+      { name: 'Dashboard', href: '/dashboard', icon: Activity },
+      { name: 'Risk Register', href: '/risks', icon: Shield },
+      { name: 'Monitoring', href: '/monitoring', icon: Target },
+      { name: 'Ask Me', href: '/ask-me', icon: MessageSquare },
     ];
 
   return (
-    <div className="layout-root">
-      {/* Sidebar - Glassmorphic Neural Design */}
-      <aside className={`sidebar glass-sidebar ${collapsed ? 'collapsed' : ''} ${mobileMenuOpen ? 'mobile-open' : ''}`}>
-        <div className="sidebar-inner">
-          {/* Brand Area */}
-          <div className="sidebar-header">
-            <div className="brand">
-              <CompanyLogo size={32} />
-              {!collapsed && (
-                <div className="brand-info-sidebar">
-                  <h1 className="brand-title-sidebar">Risk Management System</h1>
-                  <span className="brand-subtext-sidebar">Access Automation Pvt. Ltd.</span>
-                </div>
-              )}
-            </div>
+    <div className="app-layout">
+      {/* Sidebar */}
+      <aside className={`sidebar ${collapsed ? 'collapsed' : ''} ${mobileMenuOpen ? 'mobile-open' : ''}`}>
+        <div className="sidebar-header" style={{ position: 'relative' }}>
+          <div className={`logo-area ${collapsed ? 'collapsed' : ''}`}>
+            <CompanyLogo size={collapsed ? 36 : 42} iconOnly={collapsed} />
           </div>
+          <button
+            className="collapse-btn-top"
+            onClick={() => setCollapsed(!collapsed)}
+            title={collapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+          >
+            {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+          </button>
+        </div>
 
-          {/* Navigation Items */}
-          <nav className="sidebar-nav">
-            <div className="nav-group">
-              {mainNavigation.map((item) => (
-                <button
-                  key={item.name}
-                  onClick={() => { navigate(item.href); setMobileMenuOpen(false); }}
-                  className={`nav-item-new ${isActive(item.href) ? 'active' : ''}`}
-                  title={collapsed ? item.name : ''}
-                >
-                  <div className="nav-icon-new"><item.icon size={18} /></div>
-                  {!collapsed && <span className="nav-text-new">{item.name}</span>}
-                  {isActive(item.href) && <div className="active-glow" />}
-                </button>
-              ))}
-            </div>
+        <nav className="sidebar-nav">
+          {!collapsed && <div className="nav-section-label">MAIN</div>}
+          <ul className="nav-list">
+            {mainNavigation.map((item) => {
+              const isActive = location.pathname.startsWith(item.href) ||
+                (item.href === '/dashboard' && location.pathname === '/');
+              return (
+                <li key={item.href}>
+                  <Tooltip content={item.name} disabled={!collapsed}>
+                    <Link
+                      to={item.href}
+                      className={`nav-link ${isActive ? 'active' : ''}`}
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      <item.icon className="nav-icon" />
+                      {!collapsed && <span className="nav-label">{item.name}</span>}
+                    </Link>
+                  </Tooltip>
+                </li>
+              );
+            })}
+          </ul>
 
-            {/* Departments Neural Section */}
-            {(user?.role?.toLowerCase() === 'admin' || user?.department_id) && (
-              <div className="nav-group">
-                {!collapsed && (
-                  <button className="nav-label-btn" onClick={() => setDepartmentsExpanded(!departmentsExpanded)}>
-                    Node Context
-                    <ChevronDown size={14} className={`expand-icon ${departmentsExpanded ? 'expanded' : ''}`} />
-                  </button>
-                )}
-                {departmentsExpanded && !collapsed && (
-                  <div className="dept-grid">
-                    {user?.role === 'admin' && (
-                      <button onClick={() => handleDepartmentSelect(null)} className={`dept-node ${!selectedDepartment ? 'active' : ''}`}>
-                        <Shield size={10} className="node-icon" />
-                        <span>Admin</span>
+          {/* Department Selector */}
+          {(isAdmin || user?.department_id) && (
+            <div className="department-section">
+              {!collapsed && <div className="nav-section-label">DEPARTMENTS</div>}
+              <ul className="dept-list">
+                {isAdmin && (
+                  <li>
+                    <Tooltip content="All (Admin View)" disabled={!collapsed}>
+                      <button
+                        className={`dept-btn ${!selectedDepartment ? 'active' : ''}`}
+                        onClick={() => { setSelectedDepartment(null); setMobileMenuOpen(false); }}
+                      >
+                        {collapsed ? (
+                          <div className={`dept-dot ${!selectedDepartment ? 'active' : ''}`} style={{ background: !selectedDepartment ? '#2D6A4F' : '#D1D5DB' }} />
+                        ) : (
+                          <>
+                            <Shield className="dept-icon-admin" />
+                            <span className="dept-name">All (Admin View)</span>
+                          </>
+                        )}
                       </button>
-                    )}
-                    {departmentList.map((dept) => {
-                      if (user?.role?.toLowerCase() !== 'admin' && dept.id !== user?.department_id) return null;
-                      return (
-                        <button key={dept.id} onClick={() => handleDepartmentSelect(dept.id)} className={`dept-node ${selectedDepartment === dept.id ? 'active' : ''}`}>
-                          <div className="node-status" />
-                          <span>{dept.name}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                    </Tooltip>
+                  </li>
                 )}
+                {departmentList.map(dept => {
+                  if (!isAdmin && dept.id !== user?.department_id) return null;
+                  const isActive = String(selectedDepartment) === String(dept.id);
+                  return (
+                    <li key={dept.id}>
+                      <Tooltip content={dept.name} disabled={!collapsed}>
+                        <button
+                          className={`dept-btn ${isActive ? 'active' : ''}`}
+                          onClick={() => { setSelectedDepartment(dept.id); setMobileMenuOpen(false); }}
+                        >
+                          <span className={`dept-dot ${isActive ? 'active' : ''}`} style={{ background: dept.color }} />
+                          {!collapsed && <span className="dept-name">{dept.name}</span>}
+                        </button>
+                      </Tooltip>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+        </nav>
+
+        <div className="sidebar-bottom">
+          <div className={`user-area ${collapsed ? 'collapsed' : ''}`}>
+            <Tooltip
+              content={`${user?.full_name || user?.name || user?.username || 'User'} — ${isAdmin ? 'Admin' : 'User'}`}
+              disabled={!collapsed}
+              wrapperStyle={{ width: 'auto', flexShrink: 0 }}
+            >
+              <div className="avatar">
+                {user?.full_name?.charAt(0) || user?.name?.charAt(0) || user?.username?.charAt(0) || 'U'}
+              </div>
+            </Tooltip>
+            {!collapsed && (
+              <div className="user-info">
+                <span className="user-name" title={user?.full_name || user?.name || user?.username || 'System Administrator'}>
+                  {user?.full_name || user?.name || user?.username || 'System Administrator'}
+                </span>
+                <span className="user-role" title={isAdmin ? 'System Administrator / Admin' : `${user?.full_name || user?.name || user?.username} / Department_user`}>
+                  {isAdmin ? 'System Administrator / Admin' : `${user?.full_name || user?.name || user?.username} / Department_user`}
+                </span>
               </div>
             )}
-
-            {/* Admin Systems - Restricted Settings - DELETED */}
-          </nav>
-
-          {/* Sidebar Footer */}
-          <div className="sidebar-footer">
-            <div className="user-profile-v2">
-              <div className="avatar-v2 neural-gradient">
-                {user?.full_name?.charAt(0) || 'U'}
-              </div>
-              {!collapsed && (
-                <div className="user-info-v2">
-                  <p className="user-name-v2">{user?.full_name || user?.username}</p>
-                  <p className="user-status-v2"><span className="online-dot" /> Verified Identity</p>
-                </div>
-              )}
-            </div>
-            <button className="logout-icon-btn" onClick={handleLogout} title="Terminate Session">
-              <LogOut size={16} />
-            </button>
+            {!collapsed && (
+              <LogOut size={16} className="logout-icon" onClick={handleLogout} style={{ cursor: 'pointer', marginLeft: 'auto' }} />
+            )}
           </div>
         </div>
-        <button className="sidebar-toggle" onClick={() => setCollapsed(!collapsed)}>
-          {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
-        </button>
+
       </aside>
 
-      {/* Main Content Area */}
-      <div className={`main-wrapper-v2 ${collapsed ? 'expanded' : ''}`}>
-        <header className="neural-header">
+      {mobileMenuOpen && <div className="mobile-overlay" onClick={() => setMobileMenuOpen(false)} />}
+
+      {/* Main Content */}
+      <div className={`main-wrapper ${collapsed ? 'expanded' : ''}`}>
+        <header className="app-header">
           <div className="header-left">
-            <button className="mobile-toggle" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
-              <Menu size={20} />
+            <button className="mobile-menu-btn" onClick={() => setMobileMenuOpen(true)}>
+              <Menu size={24} />
             </button>
-            <div className="header-meta">
-              <h2 className="header-current-page">
-                {mainNavigation.find(n => isActive(n.href))?.name || 'Overview'}
-              </h2>
-              {user?.role !== 'admin' && (
-                <div className="neural-breadcrumb">
-                  <span className="breadcrumb-root">Risk Engine</span>
-                  <span className="breadcrumb-sep">/</span>
-                  <span className="breadcrumb-active">{selectedDepartment ? departmentList.find(d => d.id === selectedDepartment)?.name : 'Central Node'}</span>
-                </div>
-              )}
+          </div>
+
+          <div className="header-center">
+            <div className="search-bar">
+              <Search size={16} className="search-icon" />
+              <input type="text" placeholder="Search departments, users, risks..." className="search-input" />
+              <div className="search-shortcut">
+                <Command size={12} />
+                <span>F</span>
+              </div>
             </div>
           </div>
 
-          <div className="header-actions">
-            {/* Show search and add risk for everyone if they have operational roles (already filtered by Route) */}
-            <>
-              <div className="neural-search">
-                <Search size={14} className="search-icon" />
-                <input type="text" placeholder="Neural Search..." />
-                <div className="search-shortcut">/</div>
-              </div>
-              <button className="header-action-btn neural-gradient" onClick={() => navigate('/add-risk')}>
-                <Plus size={16} />
-                <span>Add Risk</span>
-              </button>
-            </>
+          <div className="header-right">
+            <button className="icon-btn" title="Messages">
+              <MessageSquare size={18} />
+            </button>
+            <button className="icon-btn" title="Notifications">
+              <Bell size={18} />
+            </button>
           </div>
         </header>
 
-        <main className="main-content-scroll">
+        <main className="main-content">
           {children}
         </main>
       </div>
 
-      {mobileMenuOpen && <div className="neural-overlay" onClick={() => setMobileMenuOpen(false)} />}
-
       <style>{`
-        .layout-root {
+        .app-layout {
           display: flex;
           min-height: 100vh;
-          background: #020617;
-          color: #f1f5f9;
-          font-family: 'Inter', system-ui, sans-serif;
+          background: #F5F5F5;
+          font-family: var(--font-body);
         }
 
-        /* Glass Sidebar */
+        /* Sidebar wrapper */
         .sidebar {
-          width: 260px;
-          height: 100vh;
+          width: 240px;
+          background: #1A4731;
+          border-right: 1px solid rgba(255,255,255,0.08);
+          display: flex;
+          flex-direction: column;
           position: fixed;
           top: 0;
           left: 0;
-          z-index: 100;
-          transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-          background: rgba(15, 23, 42, 0.8);
-          backdrop-filter: blur(16px);
-          border-right: 1px solid rgba(255, 255, 255, 0.05);
-          display: flex;
-          flex-direction: column;
+          height: 100vh;
+          z-index: 50;
+          transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+          overflow: hidden;
+          white-space: nowrap;
         }
 
-        .sidebar.collapsed { width: 72px; }
+        .sidebar.collapsed { width: 64px; }
 
-        .sidebar-inner {
-          display: flex;
-          flex-direction: column;
-          height: 100%;
-          padding: 1.5rem 0.75rem;
+        /* Tooltip component CSS */
+        .sidebar-tooltip {
+          position: fixed;
+          transform: translateY(-50%);
+          background: #1A4731;
+          color: #FFFFFF;
+          border: 1px solid rgba(255,255,255,0.15);
+          padding: 6px 12px;
+          border-radius: 8px;
+          font-size: 0.78rem;
+          font-weight: 500;
+          white-space: nowrap;
+          box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+          z-index: 100000;
+          pointer-events: none;
         }
 
-        .sidebar-header { margin-bottom: 2rem; padding: 0 0.5rem; }
-
-        .brand { display: flex; align-items: center; gap: 0.75rem; }
-
-        .brand-logo {
-          width: 36px;
-          height: 36px;
-          border-radius: 10px;
+        /* Logo Area */
+        .sidebar-header {
+          height: 70px;
           display: flex;
           align-items: center;
+          border-bottom: 1px solid rgba(255,255,255,0.08);
+          padding: 0 14px;
+        }
+
+        .sidebar.collapsed .sidebar-header {
+          padding: 0;
           justify-content: center;
-          color: white;
-          position: relative;
         }
 
-        .neural-gradient {
-          background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
-          box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
-        }
-
-        .neural-ping {
-          position: absolute;
+        .logo-area {
+          display: flex;
+          align-items: center;
+          gap: 12px;
           width: 100%;
-          height: 100%;
+        }
+
+        .logo-area.collapsed {
+          justify-content: center;
+        }
+
+        .logo-icon {
+          width: 36px; height: 36px;
           border-radius: 10px;
-          border: 2px solid #3b82f6;
-          animation: ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+          background: linear-gradient(135deg, #2D6A4F, #40916C);
+          color: white;
+          font-weight: 800;
+          font-size: 16px;
+          display: flex; align-items: center; justify-content: center;
+          flex-shrink: 0;
+          box-shadow: 0 4px 12px rgba(45,106,79,0.3);
         }
 
-        @keyframes ping {
-          75%, 100% { transform: scale(1.4); opacity: 0; }
-        }
-
-        .brand-info-sidebar {
+        .logo-text {
           display: flex;
           flex-direction: column;
-          line-height: 1.1;
+          opacity: 1;
+          width: auto;
+          overflow: hidden;
+          transition: opacity 0.2s, width 0.25s;
         }
 
-        .brand-title-sidebar {
-          font-size: 0.9rem;
-          font-weight: 700;
-          color: #f1f5f9;
-          margin: 0;
-          letter-spacing: -0.01em;
+        .logo-area.collapsed .logo-text, .sidebar.collapsed .logo-text {
+          opacity: 0;
+          width: 0;
         }
 
-        .brand-subtext-sidebar {
-          font-size: 10.5px;
-          font-weight: 500;
-          color: #94a3b8;
-          opacity: 0.9;
+        .logo-title {
+          font-family: var(--font-heading, 'Inter', sans-serif);
+          font-weight: 800;
+          font-size: 1rem;
+          color: #1A4731;
+          letter-spacing: 1px;
         }
 
-        .sidebar-nav { flex: 1; display: flex; flex-direction: column; gap: 1.5rem; overflow-y: auto; scrollbar-width: none; }
-        .sidebar-nav::-webkit-scrollbar { display: none; }
-
-        .nav-label {
+        .logo-sub {
           font-size: 0.65rem;
-          font-weight: 700;
+          color: #6B7280;
+        }
+
+        /* Nav Items */
+        .sidebar-nav {
+          flex: 1;
+          padding: 1.5rem 12px;
+          overflow-y: auto;
+          overflow-x: hidden;
+        }
+
+        .sidebar.collapsed .sidebar-nav {
+          padding: 1.5rem 8px;
+        }
+
+        .nav-section-label {
+          font-size: 0.6rem;
+          letter-spacing: 0.18em;
+          color: rgba(255,255,255,0.4);
           text-transform: uppercase;
-          color: #475569;
-          letter-spacing: 0.1em;
-          margin-bottom: 0.5rem;
+          font-weight: 700;
+          margin-bottom: 0.75rem;
           padding-left: 0.5rem;
         }
 
-        .nav-label-btn {
+        .sidebar.collapsed .nav-section-label {
+          display: none;
+        }
+
+        .nav-list {
+          list-style: none;
+          padding: 0;
+          margin: 0 0 1.5rem 0;
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+        }
+
+        .nav-link {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 9px 12px;
+          justify-content: flex-start;
+          color: rgba(255,255,255,0.65);
+          text-decoration: none;
+          border-radius: 8px;
+          transition: all 0.2s;
+        }
+
+        .sidebar.collapsed .nav-link {
+          gap: 0;
+          padding: 10px;
+          justify-content: center;
+        }
+
+        .nav-link:hover {
+          color: #FFFFFF;
+          background: rgba(255,255,255,0.08);
+        }
+
+        .nav-link.active {
+          background: #FFFFFF;
+          color: #1A4731;
+          font-weight: 700;
+          border-radius: 10px;
+          box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+          border-left: none;
+        }
+
+        .nav-link.active .nav-icon {
+          color: #1A4731;
+        }
+
+        .nav-icon {
+          width: 20px; height: 20px;
+          flex-shrink: 0;
+          stroke-width: 1.8;
+          color: rgba(255,255,255,0.5);
+        }
+
+        .nav-label {
+          font-size: 0.85rem;
+          font-weight: 500;
+          overflow: hidden;
+          white-space: nowrap;
+          transition: opacity 0.15s;
+        }
+
+        /* Departments Section */
+        .department-section {
+          display: flex;
+          flex-direction: column;
+        }
+
+        .dept-list { list-style: none; padding: 0; margin: 0; }
+
+        .dept-btn {
           width: 100%;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 6px 12px;
+          justify-content: flex-start;
           background: none;
           border: none;
-          font-size: 0.65rem;
-          font-weight: 700;
-          text-transform: uppercase;
-          color: #475569;
-          letter-spacing: 0.1em;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          padding: 0.5rem;
+          color: rgba(255,255,255,0.65);
           cursor: pointer;
-        }
-
-        .nav-item-new {
-          width: 100%;
-          display: flex;
-          align-items: center;
-          gap: 0.75rem;
-          padding: 0.75rem;
-          border: none;
-          background: transparent;
-          border-radius: 12px;
-          color: #94a3b8;
-          cursor: pointer;
-          transition: all 0.2s;
-          position: relative;
-        }
-
-        .nav-item-new:hover { background: rgba(255, 255, 255, 0.03); color: #f1f5f9; }
-
-        .nav-item-new.active {
-          background: rgba(59, 130, 246, 0.1);
-          color: #3b82f6;
-        }
-
-        .active-glow {
-          position: absolute;
-          right: 8px;
-          width: 4px;
-          height: 4px;
-          background: #3b82f6;
-          border-radius: 50%;
-          box-shadow: 0 0 10px #3b82f6;
-        }
-
-        .dept-grid { display: grid; grid-template-columns: 1fr; gap: 0.25rem; margin-top: 0.5rem; }
-
-        .dept-node {
-          display: flex;
-          align-items: center;
-          gap: 0.625rem;
-          padding: 0.5rem 0.75rem;
-          background: transparent;
-          border: none;
           border-radius: 8px;
-          color: #64748b;
-          font-size: 0.75rem;
+          transition: all 0.2s;
+        }
+
+        .sidebar.collapsed .dept-btn {
+          justify-content: center;
+          padding: 6px;
+          gap: 0;
+        }
+
+        .dept-btn:hover { background: rgba(255,255,255,0.08); color: #FFFFFF; }
+
+        .dept-dot {
+          width: 8px; height: 8px;
+          border-radius: 50%;
+          background: rgba(255,255,255,0.3);
+          flex-shrink: 0;
+        }
+
+        .dept-dot.active {
+          background: #52B788;
+          box-shadow: 0 0 10px rgba(82,183,136,0.6);
+        }
+
+        .dept-name {
+          font-size: 0.85rem;
           font-weight: 500;
-          cursor: pointer;
-          transition: all 0.2s;
-          text-align: left;
+          white-space: nowrap;
+          color: rgba(255,255,255,0.6);
         }
 
-        .dept-node:hover { background: rgba(59, 130, 246, 0.05); color: #94a3b8; }
-        .dept-node.active { color: #3b82f6; background: rgba(59, 130, 246, 0.05); }
+        .dept-btn.active .dept-name {
+          color: #FFFFFF;
+          font-weight: 600;
+        }
 
-        .node-status { width: 4px; height: 4px; border-radius: 50%; background: #334155; }
-        .dept-node.active .node-status { background: #3b82f6; box-shadow: 0 0 8px #3b82f6; }
+        .dept-icon-admin { color: rgba(255,255,255,0.65); width: 16px; height: 16px; flex-shrink: 0; }
 
-        .sidebar-footer {
+        /* User Area and Bottom Action */
+        .sidebar-bottom {
           margin-top: auto;
-          padding: 1rem 0.5rem;
-          border-top: 1px solid rgba(255, 255, 255, 0.05);
+          border-top: 1px solid rgba(255,255,255,0.08);
+          padding: 16px;
           display: flex;
-          align-items: center;
-          justify-content: space-between;
+          flex-direction: column;
         }
 
-        .user-profile-v2 { display: flex; align-items: center; gap: 0.75rem; overflow: hidden; }
+        .sidebar.collapsed .sidebar-bottom {
+          padding: 16px 8px;
+          align-items: center;
+        }
 
-        .avatar-v2 {
-          width: 32px;
-          height: 32px;
-          border-radius: 8px;
+        .user-area {
           display: flex;
           align-items: center;
+          gap: 12px;
+          width: 100%;
+        }
+
+        .user-area.collapsed {
           justify-content: center;
-          font-weight: 700;
-          font-size: 0.75rem;
+        }
+
+        .avatar {
+          width: 34px; height: 34px;
+          border-radius: 9px;
+          background: rgba(255,255,255,0.15);
+          border: 1.5px solid rgba(255,255,255,0.25);
           color: white;
+          font-weight: 700;
+          font-size: 14px;
+          flex-shrink: 0;
+          display: flex; align-items: center; justify-content: center;
         }
 
-        .user-info-v2 p { margin: 0; white-space: nowrap; }
-        .user-name-v2 { font-size: 0.75rem; font-weight: 600; }
-        .user-status-v2 { font-size: 0.6rem; color: #64748b; display: flex; align-items: center; gap: 0.25rem; }
-        .online-dot { width: 4px; height: 4px; background: #10b981; border-radius: 50%; box-shadow: 0 0 5px #10b981; }
-
-        .sidebar-toggle {
-          position: absolute;
-          right: -12px;
-          top: 32px;
-          width: 24px;
-          height: 24px;
-          background: #1e293b;
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 50%;
+        .user-info {
           display: flex;
-          align-items: center;
-          justify-content: center;
-          color: #94a3b8;
+          flex-direction: column;
+          flex: 1;
+          min-width: 0;
+          overflow: hidden;
+        }
+
+        .sidebar.collapsed .user-info {
+          display: none;
+        }
+
+        .user-name {
+          font-weight: 600;
+          font-size: 0.85rem;
+          color: #FFFFFF;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .user-role {
+          font-size: 0.72rem;
+          color: rgba(255,255,255,0.5);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .logout-icon {
+          color: rgba(255,255,255,0.4);
+          flex-shrink: 0;
+          transition: color 0.2s;
+        }
+
+        .logout-icon:hover {
+          color: #FFFFFF;
+        }
+
+        .sidebar.collapsed .logout-icon {
+          display: none;
+        }
+
+        .collapse-btn-top {
+          position: absolute;
+          right: -13px;
+          top: 50%;
+          transform: translateY(-50%);
+          background: rgba(255, 255, 255, 0.1);
+          border: 1.5px solid rgba(255, 255, 255, 0.15);
+          border-radius: 50%;
+          color: rgba(255, 255, 255, 0.7);
           cursor: pointer;
-          z-index: 101;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          width: 26px;
+          height: 26px;
+          padding: 0;
+          transition: all 0.2s;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+          z-index: 60;
+        }
+
+        .collapse-btn-top:hover {
+          background: rgba(255, 255, 255, 0.2);
+          color: #FFFFFF;
+          border-color: rgba(255, 255, 255, 0.25);
+        }
+
+                .sidebar.collapsed .nav-icon,
+        .sidebar.collapsed .dept-icon-admin,
+        .sidebar.collapsed .logout-icon,
+        .sidebar.collapsed .collapse-btn-top {
+          color: rgba(255,255,255,0.7);
+        }
+        
+        .sidebar.collapsed .nav-link:hover .nav-icon,
+        .sidebar.collapsed .dept-btn:hover .dept-icon-admin,
+        .sidebar.collapsed .logout-icon:hover,
+        .sidebar.collapsed .collapse-btn-top:hover {
+          color: #FFFFFF;
+        }
+        
+        /* Main Wrapper */
+        .main-wrapper {
+          flex: 1;
+          margin-left: 240px;
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+          transition: margin-left 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .main-wrapper.expanded { 
+          margin-left: 64px; 
         }
 
         /* Header */
-        .main-wrapper-v2 { flex: 1; margin-left: 260px; transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); display: flex; flex-direction: column; }
-        .main-wrapper-v2.expanded { margin-left: 72px; }
-
-        .neural-header {
-          height: 64px;
-          padding: 0 2rem;
+        .app-header {
+          height: 70px;
+          background: #FFFFFF;
+          border-bottom: 1px solid rgba(255,255,255,0.08);
           display: flex;
           align-items: center;
           justify-content: space-between;
-          background: rgba(2, 6, 23, 0.7);
-          backdrop-filter: blur(12px);
-          border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+          padding: 0 2rem;
           position: sticky;
           top: 0;
-          z-index: 90;
+          z-index: 40;
         }
 
-        .header-left { display: flex; align-items: center; gap: 1.5rem; }
-        .header-current-page { font-size: 1rem; font-weight: 700; margin: 0; }
+        .header-left { width: 220px; }
 
-        .neural-breadcrumb { display: flex; align-items: center; gap: 0.5rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
-        .breadcrumb-root { color: #64748b; }
-        .breadcrumb-sep { color: #334155; }
-        .breadcrumb-active { color: #3b82f6; }
+        .header-center {
+          flex: 1;
+          display: flex;
+          justify-content: center;
+        }
 
-        .header-actions { display: flex; align-items: center; gap: 1rem; }
-
-        .neural-search {
+        .search-bar {
           display: flex;
           align-items: center;
-          gap: 0.5rem;
-          background: rgba(255, 255, 255, 0.03);
-          border: 1px solid rgba(255, 255, 255, 0.05);
-          padding: 0.4rem 0.75rem;
+          background: #F8FAFB;
+          border: 1.5px solid #E2E8F0;
           border-radius: 10px;
-          width: 240px;
-        }
-
-        .search-icon { color: #475569; }
-        .neural-search input { background: none; border: none; color: white; font-size: 0.75rem; outline: none; width: 100%; }
-        .search-shortcut { font-size: 0.6rem; background: #1e293b; padding: 2px 6px; border-radius: 4px; color: #64748b; }
-
-        .header-action-btn {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
           padding: 0.5rem 1rem;
+          width: 100%;
+          max-width: 480px;
+          transition: all 0.2s;
+        }
+
+        .search-bar:focus-within {
+          border-color: #2D6A4F;
+          box-shadow: 0 0 0 3px rgba(45,106,79,0.12);
+          background: #FFFFFF;
+        }
+
+        .search-icon { color: #9CA3AF; margin-right: 0.5rem; }
+
+        .search-input {
           border: none;
-          border-radius: 10px;
-          font-size: 0.75rem;
-          font-weight: 700;
-          color: white;
+          background: transparent;
+          outline: none;
+          flex: 1;
+          font-size: 0.875rem;
+          color: #1A1A2E;
+        }
+
+        .search-input::placeholder { color: #9CA3AF; }
+
+        .search-shortcut {
+          display: flex;
+          align-items: center;
+          gap: 2px;
+          background: #F3F4F6;
+          border: 1px solid #E2E8F0;
+          border-radius: 5px;
+          padding: 2px 6px;
+          font-size: 0.7rem;
+          color: #9CA3AF;
+          font-weight: 600;
+        }
+
+        .header-right {
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+          width: 280px;
+          justify-content: flex-end;
+        }
+
+        .icon-btn {
+          background: none;
+          border: none;
+          color: #9CA3AF;
           cursor: pointer;
+          padding: 0.5rem;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: background 0.2s, color 0.2s;
         }
+        
+        .icon-btn:hover { background: #F3F4F6; color: #2D6A4F; }
 
-        .main-content-scroll { flex: 1; padding: 2rem; overflow-y: auto; }
+        .mobile-menu-btn { display: none; background: none; border: none; color: #1A1A2E; cursor: pointer; }
 
-        @media (max-width: 1024px) {
-          .neural-search { display: none; }
-        }
-
+        /* Mobile Responsive */
         @media (max-width: 768px) {
           .sidebar { transform: translateX(-100%); }
           .sidebar.mobile-open { transform: translateX(0); }
-          .main-wrapper-v2 { margin-left: 0 !important; }
-          .header-meta { display: none; }
+          .main-wrapper { margin-left: 0 !important; }
+          .mobile-menu-btn { display: block; }
+          .app-header { padding: 0 1rem; gap: 1rem; }
+          .header-left { width: auto; }
+          .header-center { display: none; }
+          .header-right { width: auto; }
+          .mobile-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 40;
+          }
         }
       `}</style>
     </div>

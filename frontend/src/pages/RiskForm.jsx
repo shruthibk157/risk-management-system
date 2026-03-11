@@ -27,6 +27,17 @@ const RiskForm = () => {
   const [errors, setErrors] = useState({});
   const [magicLoading, setMagicLoading] = useState({});
   const [dateManuallySet, setDateManuallySet] = useState(false);
+  const [showAnalysisPopup, setShowAnalysisPopup] = useState(false);
+  const [analysisData, setAnalysisData] = useState(null);
+  const [isRiskValidated, setIsRiskValidated] = useState(false);
+  const [isRequirementValidated, setIsRequirementValidated] = useState(false);
+  const [showSODPopup, setShowSODPopup] = useState(false);
+  const [sodData, setSodData] = useState(null);
+  const [showArticulationModal, setShowArticulationModal] = useState(false);
+  const [articulationData, setArticulationData] = useState(null);
+  const [showJustification, setShowJustification] = useState(false);
+  const [aiJustification, setAiJustification] = useState(null);
+  const [scoreAdvisory, setScoreAdvisory] = useState({});
 
   const [formData, setFormData] = useState({
     sl_no: 'AUTO',
@@ -127,16 +138,19 @@ const RiskForm = () => {
   }, [id]);
 
   useEffect(() => {
-    if (formData.severity && formData.occurrence && formData.detection) {
-      const rpn = calculateRPN(formData.severity, formData.occurrence, formData.detection);
-      const classification = rpn >= 25 ? 'Significant (S)' : 'Acceptable (A)';
-      setFormData(prev => ({ ...prev, rpn, risk_classification: classification }));
-    }
-    if (formData.severity_after && formData.occurrence_after && formData.detection_after) {
-      const residual_rpn = calculateRPN(formData.severity_after, formData.occurrence_after, formData.detection_after);
-      const residual_classification = residual_rpn >= 25 ? 'Significant (S)' : 'Acceptable (A)';
-      setFormData(prev => ({ ...prev, residual_rpn, residual_classification }));
-    }
+    const rpn = calculateRPN(formData.severity, formData.occurrence, formData.detection);
+    const classification = rpn >= 25 ? 'Significant (S)' : 'Acceptable (A)';
+
+    const residual_rpn = calculateRPN(formData.severity_after, formData.occurrence_after, formData.detection_after);
+    const residual_classification = residual_rpn >= 25 ? 'Significant (S)' : 'Acceptable (A)';
+
+    setFormData(prev => ({
+      ...prev,
+      rpn,
+      risk_classification: classification,
+      residual_rpn,
+      residual_classification
+    }));
   }, [formData.severity, formData.occurrence, formData.detection, formData.severity_after, formData.occurrence_after, formData.detection_after]);
 
   // Pre-fetch the NEXT sequential number for display
@@ -204,6 +218,12 @@ const RiskForm = () => {
     } else {
       setFormData(prev => ({ ...prev, [name]: value }));
       if (errors[name]) setErrors(prev => ({ ...prev, [name]: null }));
+      if (name === 'requirement_process_area') setIsRequirementValidated(false);
+      if (name === 'risk_description') setIsRiskValidated(false);
+
+      if (['severity', 'occurrence', 'detection'].includes(name)) {
+        handleManualScoreChange(name, value);
+      }
     }
   };
 
@@ -214,10 +234,20 @@ const RiskForm = () => {
       alert('Please select a department first.');
       return;
     }
+
+    // ISO Gate: No scoring/re-articulation without valid description
+    if (field === 'risk_description' && !formData.risk_description) {
+      alert('Please enter a risk description first.');
+      return;
+    }
+
     setMagicLoading(prev => ({ ...prev, [field]: true }));
     try {
       const fd = new FormData();
       fd.append('department_id', formData.department_id);
+      fd.append('risk_description', formData.risk_description);
+      fd.append('requirement', formData.requirement_process_area);
+
       let context = '';
       if (promptMode === 'REPHRASE') {
         if (field === 'actions_taken') context = `[REPHRASE_MODE] [RESULTS_MODE] ${formData[field] || ''}`;
@@ -228,16 +258,55 @@ const RiskForm = () => {
       }
       fd.append('context_text', context);
       const response = await aiAPI.articulateRisk(fd);
+
+      if (field === 'risk_description' && response.data.articulation) {
+        setArticulationData({
+          original: formData.risk_description,
+          articulated: response.data.articulation,
+          full_text: response.data.rephrased,
+          scores: response.data.scores,
+          justification: response.data.justification
+        });
+        setShowArticulationModal(true);
+        return;
+      }
+
       if (response.data[field]) setFormData(prev => ({ ...prev, [field]: response.data[field] }));
       else if (response.data.rephrased) setFormData(prev => ({ ...prev, [field]: response.data.rephrased }));
       else if (response.data.text) setFormData(prev => ({ ...prev, [field]: response.data.text }));
     } catch (error) {
       console.error("Magic action failed", error);
-      if (promptMode === 'REPHRASE' && formData[field]) {
-        setFormData(prev => ({ ...prev, [field]: formData[field].replace(/bad/g, 'sub-optimal') }));
-      }
     } finally {
       setMagicLoading(prev => ({ ...prev, [field]: false }));
+    }
+  };
+
+  const handleAnalyzeRisk = async () => {
+    if (!formData.department_id) {
+      alert('Please select a department first.');
+      return;
+    }
+    setMagicLoading(prev => ({ ...prev, analyzeRisk: true }));
+    try {
+      const response = await aiAPI.analyzeRisk({
+        requirement_text: formData.requirement_process_area,
+        risk_description: formData.risk_description,
+        department_id: formData.department_id
+      });
+
+      const res = response.data;
+      if (res.both_valid) {
+        setIsRequirementValidated(true);
+        setIsRiskValidated(true);
+      } else {
+        setAnalysisData(res);
+        setShowAnalysisPopup(true);
+      }
+    } catch (error) {
+      console.error("Risk analysis failed", error);
+      alert('Failed to analyze risk. Please try again.');
+    } finally {
+      setMagicLoading(prev => ({ ...prev, analyzeRisk: false }));
     }
   };
 
@@ -263,9 +332,115 @@ const RiskForm = () => {
     }
   };
 
+  const logAIAction = async (actionData) => {
+    try {
+      await aiAPI.logAIAction({
+        risk_id: id || 'NEW',
+        ...actionData
+      });
+    } catch (err) {
+      console.error("Failed to log AI action", err);
+    }
+  };
+
+  const handleMagicSOD = async () => {
+    if (!formData.department_id) {
+      alert('Please select a department first.');
+      return;
+    }
+    setMagicLoading(prev => ({ ...prev, magicSOD: true }));
+    try {
+      const response = await aiAPI.validateScoring({
+        department_id: formData.department_id,
+        requirement_process_area: formData.requirement_process_area,
+        risk_description: formData.risk_description,
+        severity: formData.severity,
+        occurrence: formData.occurrence,
+        detection: formData.detection
+      });
+      setSodData(response.data);
+      setShowSODPopup(true);
+
+      // Also update justifications for display
+      setAiJustification(response.data);
+    } catch (error) {
+      console.error("SOD Magic failed", error);
+      alert('Failed to generate SOD suggestions.');
+    } finally {
+      setMagicLoading(prev => ({ ...prev, magicSOD: false }));
+    }
+  };
+
+  const handleManualScoreChange = async (name, value) => {
+    // Background validation
+    if (formData.risk_description && formData.requirement_process_area) {
+      try {
+        const res = await aiAPI.validateScoring({
+          department_id: formData.department_id,
+          requirement_process_area: formData.requirement_process_area,
+          risk_description: formData.risk_description,
+          [name]: value
+        });
+        const field = name.split('_')[0]; // e.g., 'severity'
+        if (res.data[field] && res.data[field].user_mismatch) {
+          setScoreAdvisory(prev => ({ ...prev, [field]: res.data[field] }));
+        } else {
+          setScoreAdvisory(prev => ({ ...prev, [field]: null }));
+        }
+      } catch (e) { console.error(e); }
+    }
+  };
+
+  const validateStep = (step) => {
+    const newErrors = {};
+    const requiredFields = {
+      1: ['requirement_process_area', 'risk_description', 'severity', 'occurrence', 'detection', 'potential_failure_mode', 'potential_effects', 'potential_causes'],
+      2: ['current_controls_prevention', 'current_controls_detection', 'recommended_actions', 'responsibility_owner', 'target_completion_date'],
+      3: ['actions_taken', 'actual_completion_date', 'review_date', 'status', 'severity_after', 'occurrence_after', 'detection_after']
+    };
+
+    // Special check for department_id if admin and not pre-selected
+    if (step === 1 && user?.role === 'admin' && !selectedDepartment) {
+      if (!requiredFields[1].includes('department_id')) {
+        requiredFields[1].push('department_id');
+      }
+    }
+
+    const fieldsToValidate = requiredFields[step] || [];
+    let firstInvalidField = null;
+
+    fieldsToValidate.forEach(field => {
+      const val = formData[field];
+      if (val === undefined || val === null || (typeof val === 'string' && val.trim() === '') || (typeof val === 'number' && isNaN(val))) {
+        newErrors[field] = '⚠ This field is required.';
+        if (!firstInvalidField) firstInvalidField = field;
+      }
+    });
+
+    setErrors(prev => ({ ...prev, ...newErrors }));
+
+    if (firstInvalidField) {
+      // Small delay to ensure state update has triggered re-render with error classes
+      setTimeout(() => {
+        const element = document.getElementsByName(firstInvalidField)[0] ||
+          document.querySelector(`[name="${firstInvalidField}"]`) ||
+          document.getElementById(firstInvalidField);
+
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          element.focus({ preventScroll: true }); // preventScroll because we already scrolled smoothly
+        }
+      }, 100);
+      return false;
+    }
+    return true;
+  };
+
   const handleSubmit = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     if (submitting) return;
+
+    if (!validateStep(currentStep)) return;
 
     if (currentStep < 3) {
       nextStep();
@@ -286,13 +461,17 @@ const RiskForm = () => {
     }
   };
 
-  const nextStep = () => setCurrentStep(prev => Math.min(prev + 1, 3));
+  const nextStep = () => {
+    if (validateStep(currentStep)) {
+      setCurrentStep(prev => Math.min(prev + 1, 3));
+    }
+  };
   const prevStep = () => setCurrentStep(prev => Math.max(prev - 1, 1));
 
 
 
   const renderNumericInput = (name, value, label) => (
-    <div className="compact-field-group">
+    <div className="compact-field-group relative-group">
       <label>{label}</label>
       <input
         type="number"
@@ -304,6 +483,7 @@ const RiskForm = () => {
         placeholder="1-5"
         className={errors[name] ? 'error' : ''}
       />
+      {errors[name] && <span className="field-error-msg text-center" style={{ fontSize: '10px' }}>{errors[name]}</span>}
     </div>
   );
 
@@ -339,7 +519,15 @@ const RiskForm = () => {
           {steps.map((step, index) => (
             <div key={step.number}
               className={`step-item ${currentStep === step.number ? 'active' : ''} ${currentStep > step.number ? 'completed' : ''}`}
-              onClick={() => setCurrentStep(step.number)}>
+              onClick={() => {
+                if (step.number > currentStep) {
+                  if (validateStep(currentStep)) {
+                    setCurrentStep(step.number);
+                  }
+                } else {
+                  setCurrentStep(step.number);
+                }
+              }}>
               <div className="step-indicator">
                 {currentStep > step.number ? <Check size={14} /> : step.number}
               </div>
@@ -367,7 +555,8 @@ const RiskForm = () => {
                     name="date_raised"
                     value={formData.date_raised}
                     onChange={handleChange}
-                    className="input-compact-date"
+                    readOnly={isEdit || dateManuallySet}
+                    className={`input-compact-date ${(isEdit || dateManuallySet) ? 'frozen' : ''}`}
                   />
                 </div>
               </div>
@@ -378,10 +567,11 @@ const RiskForm = () => {
                 {user?.role === 'admin' && !selectedDepartment && (
                   <div className="field-group">
                     <label>Department</label>
-                    <select name="department_id" value={formData.department_id} onChange={handleChange} className="input-sm">
+                    <select name="department_id" value={formData.department_id} onChange={handleChange} className={`input-sm ${errors.department_id ? 'error' : ''}`}>
                       <option value="">Select Dept</option>
                       {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                     </select>
+                    {errors.department_id && <span className="field-error-msg">{errors.department_id}</span>}
                   </div>
                 )}
 
@@ -392,27 +582,39 @@ const RiskForm = () => {
                     name="requirement_process_area"
                     value={formData.requirement_process_area}
                     onChange={handleChange}
-                    className="input-sm"
+                    className={`input-sm ${errors.requirement_process_area ? 'error' : ''}`}
                     placeholder="e.g. Manufacturing Process"
                   />
+                  {errors.requirement_process_area && <span className="field-error-msg">{errors.requirement_process_area}</span>}
+                  {isRequirementValidated && <div className="text-success mt-1 text-xs flex items-center gap-1"><CheckCircle2 size={12} /> Requirement validated.</div>}
                 </div>
 
                 {/* 2. Risk Description */}
                 <div className="field-group relative-group">
-                  <label>Risk Description</label>
+                  <div className="label-row">
+                    <label>Risk Description</label>
+                  </div>
                   <textarea
                     name="risk_description"
+                    id="risk_description"
                     value={formData.risk_description}
                     onChange={handleChange}
-                    className="textarea-sm medium-height"
+                    className={`textarea-sm medium-height ${errors.risk_description ? 'error' : ''}`}
                     placeholder="Describe the risk..."
                   />
-                  {!isSinglePage && <SmartAssistButton onClick={handleMagicPrompt} loading={magicLoading.magicPrompt} />}
+                  {errors.risk_description && <span className="field-error-msg">{errors.risk_description}</span>}
+                  {!isSinglePage && <SmartAssistButton onClick={handleAnalyzeRisk} loading={magicLoading.analyzeRisk} />}
+                  {isRiskValidated && <div className="text-success mt-1 text-xs flex items-center gap-1"><CheckCircle2 size={12} /> Risk Description professionally structured.</div>}
                 </div>
 
                 {/* 3. SOD + RPN (Compact Row) */}
-                <div className="sod-rpn-row">
-                  <div className="sod-group">
+                <div className={`sod-rpn-row ${!formData.risk_description ? 'locked-gate' : ''}`}>
+                  {!formData.risk_description && (
+                    <div className="gate-overlay" onClick={() => document.getElementById('risk_description').focus()}>
+                      <AlertTriangle size={14} /> Description Required for Scoring
+                    </div>
+                  )}
+                  <div className="sod-group relative-group">
                     <div className="sod-item">
                       <label>Severity</label>
                       <input
@@ -420,9 +622,26 @@ const RiskForm = () => {
                         name="severity"
                         value={formData.severity}
                         onChange={handleChange}
+                        disabled={!formData.risk_description}
+                        onKeyDown={(e) => {
+                          if (!/[0-9]/.test(e.key) && !['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.key)) {
+                            e.preventDefault();
+                          }
+                        }}
                         placeholder="-"
                         className={errors.severity ? 'error' : ''}
                       />
+                      {errors.severity && <span className="field-error-msg">{errors.severity}</span>}
+                      {scoreAdvisory.severity && (
+                        <div className="score-advisory-pop">
+                          <span>Rec: {scoreAdvisory.severity.value}</span>
+                          <button type="button" onClick={() => {
+                            setFormData(prev => ({ ...prev, severity: scoreAdvisory.severity.value }));
+                            setScoreAdvisory(prev => ({ ...prev, severity: null }));
+                            logAIAction({ action_type: 'SCORE_ADVISORY_ACCEPT', field: 'severity', value: scoreAdvisory.severity.value });
+                          }}>Apply</button>
+                        </div>
+                      )}
                     </div>
                     <div className="sod-item">
                       <label>Occurrence</label>
@@ -431,9 +650,26 @@ const RiskForm = () => {
                         name="occurrence"
                         value={formData.occurrence}
                         onChange={handleChange}
+                        disabled={!formData.risk_description}
+                        onKeyDown={(e) => {
+                          if (!/[0-9]/.test(e.key) && !['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.key)) {
+                            e.preventDefault();
+                          }
+                        }}
                         placeholder="-"
                         className={errors.occurrence ? 'error' : ''}
                       />
+                      {errors.occurrence && <span className="field-error-msg">{errors.occurrence}</span>}
+                      {scoreAdvisory.occurrence && (
+                        <div className="score-advisory-pop">
+                          <span>Rec: {scoreAdvisory.occurrence.value}</span>
+                          <button type="button" onClick={() => {
+                            setFormData(prev => ({ ...prev, occurrence: scoreAdvisory.occurrence.value }));
+                            setScoreAdvisory(prev => ({ ...prev, occurrence: null }));
+                            logAIAction({ action_type: 'SCORE_ADVISORY_ACCEPT', field: 'occurrence', value: scoreAdvisory.occurrence.value });
+                          }}>Apply</button>
+                        </div>
+                      )}
                     </div>
                     <div className="sod-item">
                       <label>Detection</label>
@@ -442,19 +678,81 @@ const RiskForm = () => {
                         name="detection"
                         value={formData.detection}
                         onChange={handleChange}
+                        disabled={!formData.risk_description}
+                        onKeyDown={(e) => {
+                          if (!/[0-9]/.test(e.key) && !['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.key)) {
+                            e.preventDefault();
+                          }
+                        }}
                         placeholder="-"
                         className={errors.detection ? 'error' : ''}
                       />
+                      {errors.detection && <span className="field-error-msg">{errors.detection}</span>}
+                      {scoreAdvisory.detection && (
+                        <div className="score-advisory-pop">
+                          <span>Rec: {scoreAdvisory.detection.value}</span>
+                          <button type="button" onClick={() => {
+                            setFormData(prev => ({ ...prev, detection: scoreAdvisory.detection.value }));
+                            setScoreAdvisory(prev => ({ ...prev, detection: null }));
+                            logAIAction({ action_type: 'SCORE_ADVISORY_ACCEPT', field: 'detection', value: scoreAdvisory.detection.value });
+                          }}>Apply</button>
+                        </div>
+                      )}
                     </div>
-                  </div>
+                    {/* Smart Assist Button for SOD */}
+                    <div className="magic-button-container">
+                      <SmartAssistButton onClick={handleMagicSOD} loading={magicLoading.magicSOD} />
+                    </div>
+                  </div> {/* Close sod-group */}
 
-                  <div className="rpn-arrow">→</div>
+                  {/* RPN Display Logic */}
+                  {(() => {
+                    const isVisible = formData.severity || formData.occurrence || formData.detection;
+                    return (
+                      <>
+                        <div className={`rpn-arrow ${isVisible ? 'visible' : ''}`}>→</div>
+                        <div className={`rpn-display-box ${getRPNData(formData.rpn).color} ${isVisible ? 'visible' : ''}`}>
+                          <span className="rpn-label">RPN:</span>
+                          <span className="rpn-value">{formData.rpn}</span>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div> {/* Close sod-rpn-row */}
 
-                  <div className={`rpn-display-box ${getRPNData(formData.rpn).color}`}>
-                    <span className="rpn-label">RPN:</span>
-                    <span className="rpn-value">{formData.rpn}</span>
+                {/* Justification Panel */}
+                {aiJustification && (
+                  <div className="justification-panel animate-slide-up">
+                    <div className="panel-header" onClick={() => setShowJustification(!showJustification)}>
+                      <div className="flex items-center gap-2">
+                        <Shield size={14} className="text-blue-500" />
+                        <span>AI Scoring Justification & Audit Trail</span>
+                      </div>
+                      {showJustification ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    </div>
+                    {showJustification && (
+                      <div className="panel-body">
+                        <div className="justification-grid">
+                          <div className="just-item">
+                            <label>Severity</label>
+                            <p>{aiJustification.severity.justification}</p>
+                          </div>
+                          <div className="just-item">
+                            <label>Occurrence</label>
+                            <p>{aiJustification.occurrence.justification}</p>
+                          </div>
+                          <div className="just-item">
+                            <label>Detection</label>
+                            <p>{aiJustification.detection.justification}</p>
+                          </div>
+                        </div>
+                        <div className="audit-note">
+                          <CheckCircle2 size={10} /> ISO 9001:2015 Audit-Ready Documentation Generated
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
+                )}
 
                 {/* 4. Potential Failure Mode */}
                 <div className="field-group">
@@ -463,8 +761,10 @@ const RiskForm = () => {
                     name="potential_failure_mode"
                     value={formData.potential_failure_mode}
                     onChange={handleChange}
-                    className="textarea-sm short-height"
+                    className={`textarea-sm short-height ${errors.potential_failure_mode ? 'error' : ''}`}
+                    placeholder="What could go wrong?"
                   />
+                  {errors.potential_failure_mode && <span className="field-error-msg">{errors.potential_failure_mode}</span>}
                 </div>
 
                 {/* 5. Potential Effects */}
@@ -474,8 +774,10 @@ const RiskForm = () => {
                     name="potential_effects"
                     value={formData.potential_effects}
                     onChange={handleChange}
-                    className="textarea-sm short-height"
+                    className={`textarea-sm short-height ${errors.potential_effects ? 'error' : ''}`}
+                    placeholder="What is the impact?"
                   />
+                  {errors.potential_effects && <span className="field-error-msg">{errors.potential_effects}</span>}
                 </div>
 
                 {/* 6. Potential Causes */}
@@ -485,8 +787,10 @@ const RiskForm = () => {
                     name="potential_causes"
                     value={formData.potential_causes}
                     onChange={handleChange}
-                    className="textarea-sm short-height"
+                    className={`textarea-sm short-height ${errors.potential_causes ? 'error' : ''}`}
+                    placeholder="Why would it happen?"
                   />
+                  {errors.potential_causes && <span className="field-error-msg">{errors.potential_causes}</span>}
                 </div>
 
               </div>
@@ -548,9 +852,10 @@ const RiskForm = () => {
                           name="current_controls_prevention"
                           value={formData.current_controls_prevention}
                           onChange={handleChange}
-                          className="textarea-sm medium-height"
+                          className={`textarea-sm medium-height ${errors.current_controls_prevention ? 'error' : ''}`}
                           rows={5}
                         />
+                        {errors.current_controls_prevention && <span className="field-error-msg">{errors.current_controls_prevention}</span>}
                         <SmartAssistButton onClick={() => handleMagicAction('current_controls_prevention', 'SUGGEST_CONTROLS')} loading={magicLoading.current_controls_prevention} />
                       </div>
                       <div className="field-group relative-group">
@@ -559,27 +864,31 @@ const RiskForm = () => {
                           name="current_controls_detection"
                           value={formData.current_controls_detection}
                           onChange={handleChange}
-                          className="textarea-sm medium-height"
+                          className={`textarea-sm medium-height ${errors.current_controls_detection ? 'error' : ''}`}
                           rows={5}
                         />
+                        {errors.current_controls_detection && <span className="field-error-msg">{errors.current_controls_detection}</span>}
                         <SmartAssistButton onClick={() => handleMagicAction('current_controls_detection', 'SUGGEST_CONTROLS')} loading={magicLoading.current_controls_detection} />
                       </div>
                     </div>
 
                     <div className="field-group relative-group">
                       <label>Recommended Actions</label>
-                      <textarea name="recommended_actions" value={formData.recommended_actions} onChange={handleChange} className="textarea-sm short-height" />
+                      <textarea name="recommended_actions" value={formData.recommended_actions} onChange={handleChange} className={`textarea-sm short-height ${errors.recommended_actions ? 'error' : ''}`} />
+                      {errors.recommended_actions && <span className="field-error-msg">{errors.recommended_actions}</span>}
                       <SmartAssistButton onClick={() => handleMagicAction('recommended_actions', 'REPHRASE')} loading={magicLoading.recommended_actions} />
                     </div>
 
                     <div className="grid-row cols-2">
                       <div className="field-group">
                         <label>Responsibility Owner</label>
-                        <input name="responsibility_owner" value={formData.responsibility_owner} onChange={handleChange} className="input-sm" />
+                        <input name="responsibility_owner" value={formData.responsibility_owner} onChange={handleChange} className={`input-sm ${errors.responsibility_owner ? 'error' : ''}`} />
+                        {errors.responsibility_owner && <span className="field-error-msg">{errors.responsibility_owner}</span>}
                       </div>
                       <div className="field-group">
                         <label>Target Date</label>
-                        <input type="date" name="target_completion_date" value={formData.target_completion_date} onChange={handleChange} className="input-sm" />
+                        <input type="date" name="target_completion_date" value={formData.target_completion_date} onChange={handleChange} className={`input-sm ${errors.target_completion_date ? 'error' : ''}`} />
+                        {errors.target_completion_date && <span className="field-error-msg">{errors.target_completion_date}</span>}
                       </div>
                     </div>
                   </div>
@@ -675,9 +984,10 @@ const RiskForm = () => {
                         name="actions_taken"
                         value={formData.actions_taken}
                         onChange={handleChange}
-                        className="textarea-sm medium-height"
+                        className={`textarea-sm medium-height ${errors.actions_taken ? 'error' : ''}`}
                         rows={4}
                       />
+                      {errors.actions_taken && <span className="field-error-msg">{errors.actions_taken}</span>}
                       {!isSinglePage && <SmartAssistButton onClick={() => handleMagicAction('actions_taken', 'REPHRASE')} loading={magicLoading.actions_taken} />}
                     </div>
 
@@ -685,20 +995,23 @@ const RiskForm = () => {
                     <div className="grid-row cols-3">
                       <div className="field-group">
                         <label>Completion Date</label>
-                        <input type="date" name="actual_completion_date" value={formData.actual_completion_date} onChange={handleChange} className="input-sm" />
+                        <input type="date" name="actual_completion_date" value={formData.actual_completion_date} onChange={handleChange} className={`input-sm ${errors.actual_completion_date ? 'error' : ''}`} />
+                        {errors.actual_completion_date && <span className="field-error-msg">{errors.actual_completion_date}</span>}
                       </div>
                       <div className="field-group">
                         <label>Review Date</label>
-                        <input type="date" name="review_date" value={formData.review_date} onChange={handleChange} className="input-sm" />
+                        <input type="date" name="review_date" value={formData.review_date} onChange={handleChange} className={`input-sm ${errors.review_date ? 'error' : ''}`} />
+                        {errors.review_date && <span className="field-error-msg">{errors.review_date}</span>}
                       </div>
                       <div className="field-group">
                         <label>Status</label>
-                        <select name="status" value={formData.status} onChange={handleChange} className="input-sm status-select">
+                        <select name="status" value={formData.status} onChange={handleChange} className={`input-sm status-select ${errors.status ? 'error' : ''}`}>
                           <option value="Open">Open</option>
                           <option value="In Progress">In Progress</option>
                           <option value="Closed">Closed</option>
                           <option value="Ongoing">Ongoing</option>
                         </select>
+                        {errors.status && <span className="field-error-msg">{errors.status}</span>}
                       </div>
                     </div>
 
@@ -723,12 +1036,12 @@ const RiskForm = () => {
 
         </fieldset>
 
-        {/* Sticky Action Bar */}
+        {/* Inline Action Bar */}
         {!isSinglePage && (
-          <div className="sticky-action-bar">
-            <>
-              <button type="button" className="btn-cancel" onClick={() => navigate('/risks')}>Cancel</button>
+          <div className="form-actions-inline">
+            <button type="button" className="btn-cancel" onClick={() => navigate('/risks')}>Cancel</button>
 
+            <div className="flex gap-3">
               {currentStep > 1 && (
                 <button type="button" className="btn-prev" onClick={prevStep}>
                   <ChevronLeft size={14} /> Previous
@@ -745,31 +1058,300 @@ const RiskForm = () => {
                   {submitting ? 'Saving...' : 'Save Risk Assessment'}
                 </button>
               )}
-            </>
+            </div>
           </div>
         )}
 
       </form>
 
+      {/* Combined Validation Popup Modal */}
+      {showAnalysisPopup && analysisData && (
+        <div className="modal-overlay">
+          <div className="modal-container requirement-modal">
+            <h3 className="modal-title">
+              {!analysisData.requirement.valid ? "Requirement Description Needs Clarification" : "Risk Description Needs Enhancement"}
+            </h3>
+            <div className="modal-body custom-scrollbar" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+
+              {/* SECTION A: REQUIREMENT */}
+              {!analysisData.requirement.valid && (
+                <div className="mb-4">
+                  <p className="modal-text">
+                    The entered Requirement / Process Area does not provide enough context for proper risk articulation.
+                  </p>
+                  <div className="issues-box message-error">
+                    <strong>Issues detected:</strong>
+                    <ul className="issues-list">
+                      <li>The requirement is unclear or incomplete</li>
+                      <li>It does not describe a process, control, or operational activity</li>
+                      <li>It cannot be used to articulate a meaningful risk</li>
+                    </ul>
+                  </div>
+
+                  <div className="suggestion-box message-success">
+                    <strong>AI Suggested Requirement:</strong>
+                    <p>{analysisData.requirement.suggestion}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* SECTION B: RISK DESCRIPTION */}
+              {!analysisData.description.valid && (
+                <div className="mt-4 pt-4 border-t border-gray-100">
+                  <p className="modal-text">
+                    The entered Risk Description could be improved for better severity/occurrence scoring and FMEA quantification.
+                  </p>
+
+                  <div className="issues-box message-warning" style={{ backgroundColor: '#FFFBEB', borderLeftColor: '#F59E0B' }}>
+                    <strong style={{ color: '#B45309' }}>Original Description:</strong>
+                    <p style={{ color: '#B45309', margin: 0 }}>{formData.risk_description || "(None)"}</p>
+                  </div>
+
+                  <div className="suggestion-box message-success mt-3">
+                    <strong>AI Re-articulated Risk Description:</strong>
+                    <p>{analysisData.description.rephrased || analysisData.description.example}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="modal-actions-horizontal flex flex-wrap gap-2 justify-end" style={{ padding: '16px 24px', background: '#F8FAFC', borderTop: '1px solid #E5E7EB', flexWrap: 'wrap' }}>
+              <button className="btn-secondary" onClick={() => setShowAnalysisPopup(false)}>
+                Cancel
+              </button>
+              <button className="btn-secondary" onClick={() => setShowAnalysisPopup(false)}>
+                Edit Manually
+              </button>
+
+              {/* Conditional Acceptance Buttons */}
+              {!analysisData.requirement.valid && analysisData.description.valid && (
+                <button className="btn-primary" onClick={() => {
+                  setFormData(prev => ({ ...prev, requirement_process_area: analysisData.requirement.suggestion }));
+                  setIsRequirementValidated(true);
+                  setShowAnalysisPopup(false);
+                }}>
+                  Accept Requirement Suggestion
+                </button>
+              )}
+
+              {analysisData.requirement.valid && !analysisData.description.valid && (
+                <button className="btn-primary" onClick={() => {
+                  setFormData(prev => ({ ...prev, risk_description: analysisData.description.rephrased || analysisData.description.example }));
+                  setIsRiskValidated(true);
+                  setShowAnalysisPopup(false);
+                }}>
+                  Accept Risk Description Suggestion
+                </button>
+              )}
+
+              {!analysisData.requirement.valid && !analysisData.description.valid && (
+                <button className="btn-primary" onClick={() => {
+                  setFormData(prev => ({
+                    ...prev,
+                    requirement_process_area: analysisData.requirement.suggestion,
+                    risk_description: analysisData.description.rephrased || analysisData.description.example
+                  }));
+                  setIsRequirementValidated(true);
+                  setIsRiskValidated(true);
+                  setShowAnalysisPopup(false);
+                }}>
+                  Accept Both
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SOD ANALYSIS POPUP */}
+      {showSODPopup && sodData && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-[#1a1a1a] border border-white/10 w-full max-w-lg rounded-xl shadow-2xl overflow-hidden">
+            <div className="px-6 py-4 bg-gradient-to-r from-blue-900/20 to-transparent border-b border-white/5 flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-500/10 rounded-lg">
+                  <Sparkles className="text-blue-400" size={18} />
+                </div>
+                <div>
+                  <h3 className="text-white font-bold text-lg leading-tight">SOD Scoring Optimization</h3>
+                  <p className="text-white/40 text-[10px] uppercase tracking-wider font-semibold">AI Risk Quantification</p>
+                </div>
+              </div>
+              <div className={`px-3 py-1.5 rounded-lg border font-bold text-lg bg-black/40 ${getRPNData(sodData.severity.value * sodData.occurrence.value * sodData.detection.value).color === 'green' ? 'text-green-400 border-green-500/30' :
+                getRPNData(sodData.severity.value * sodData.occurrence.value * sodData.detection.value).color === 'yellow' ? 'text-yellow-400 border-yellow-500/30' : 'text-red-400 border-red-500/30'}`}>
+                RPN: {sodData.severity.value * sodData.occurrence.value * sodData.detection.value}
+              </div>
+            </div>
+
+            <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar">
+              {/* Severity */}
+              <div className="p-4 bg-white/5 rounded-lg border border-white/5">
+                <div className="flex justify-between items-center mb-2">
+                  <label className="text-white/60 text-[10px] font-bold uppercase tracking-wider">Severity (S)</label>
+                  <input
+                    type="number"
+                    min="1" max="5"
+                    value={sodData.severity.value}
+                    onChange={(e) => setSodData({ ...sodData, severity: { ...sodData.severity, value: parseInt(e.target.value) || 1 } })}
+                    className="w-12 h-10 bg-black/40 border border-white/10 rounded-lg text-center text-blue-400 font-bold text-lg focus:outline-none focus:border-blue-500/50"
+                  />
+                </div>
+                <p className="text-xs text-white/80 leading-relaxed italic">"{sodData.severity.justification}"</p>
+              </div>
+
+              {/* Occurrence */}
+              <div className="p-4 bg-white/5 rounded-lg border border-white/5">
+                <div className="flex justify-between items-center mb-2">
+                  <label className="text-white/60 text-[10px] font-bold uppercase tracking-wider">Occurrence (O)</label>
+                  <input
+                    type="number"
+                    min="1" max="5"
+                    value={sodData.occurrence.value}
+                    onChange={(e) => setSodData({ ...sodData, occurrence: { ...sodData.occurrence, value: parseInt(e.target.value) || 1 } })}
+                    className="w-12 h-10 bg-black/40 border border-white/10 rounded-lg text-center text-blue-400 font-bold text-lg focus:outline-none focus:border-blue-500/50"
+                  />
+                </div>
+                <p className="text-xs text-white/80 leading-relaxed italic">"{sodData.occurrence.justification}"</p>
+              </div>
+
+              {/* Detection */}
+              <div className="p-4 bg-white/5 rounded-lg border border-white/5">
+                <div className="flex justify-between items-center mb-2">
+                  <label className="text-white/60 text-[10px] font-bold uppercase tracking-wider">Detection (D)</label>
+                  <input
+                    type="number"
+                    min="1" max="5"
+                    value={sodData.detection.value}
+                    onChange={(e) => setSodData({ ...sodData, detection: { ...sodData.detection, value: parseInt(e.target.value) || 1 } })}
+                    className="w-12 h-10 bg-black/40 border border-white/10 rounded-lg text-center text-blue-400 font-bold text-lg focus:outline-none focus:border-blue-500/50"
+                  />
+                </div>
+                <p className="text-xs text-white/80 leading-relaxed italic">"{sodData.detection.justification}"</p>
+              </div>
+            </div>
+
+            <div className="p-4 bg-black/20 border-t border-white/5 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowSODPopup(false)}
+                className="flex-1 px-4 py-2 rounded-lg border border-white/10 text-white font-semibold hover:bg-white/5 transition-all text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFormData(prev => ({
+                    ...prev,
+                    severity: sodData.severity.value,
+                    occurrence: sodData.occurrence.value,
+                    detection: sodData.detection.value
+                  }));
+                  setShowSODPopup(false);
+                  // RPN will update automatically via useEffect
+                }}
+                className="flex-[1.5] px-4 py-2 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-500 shadow-lg shadow-blue-600/20 transition-all text-xs flex items-center justify-center gap-2"
+              >
+                <Check size={16} /> Accept AI Scoring
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RISK ARTICULATION MODAL */}
+      {showArticulationModal && articulationData && (
+        <div className="modal-overlay">
+          <div className="modal-container articulation-modal">
+            <h3 className="modal-title">AI Risk Enhancement & Articulation</h3>
+            <div className="modal-body custom-scrollbar" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+              <div className="articulation-structure">
+                <div className="art-box">
+                  <label>Risk Event</label>
+                  <p>{articulationData.articulated.event}</p>
+                </div>
+                <div className="art-box">
+                  <label>Primary Cause</label>
+                  <p>{articulationData.articulated.cause}</p>
+                </div>
+                <div className="art-box">
+                  <label>Potential Impact</label>
+                  <p>{articulationData.articulated.impact}</p>
+                </div>
+              </div>
+              <div className="mt-4 p-3 bg-blue-50 border border-blue-100 rounded-lg">
+                <label className="text-[10px] font-bold text-blue-800 uppercase block mb-1">Full ISO-Aligned Articulation</label>
+                <p className="text-sm text-blue-900 leading-relaxed font-medium">{articulationData.full_text}</p>
+              </div>
+            </div>
+            <div className="modal-actions-horizontal">
+              <button type="button" className="btn-secondary" onClick={() => {
+                setShowArticulationModal(false);
+                logAIAction({ action_type: 'ARTICULATION_REJECT', original: articulationData.original });
+              }}>Keep Original</button>
+              <button type="button" className="btn-primary" onClick={() => {
+                setFormData(prev => ({
+                  ...prev,
+                  risk_description: articulationData.full_text,
+                  severity: articulationData.scores.severity,
+                  occurrence: articulationData.scores.occurrence,
+                  detection: articulationData.scores.detection,
+                  is_ai_assisted: 1
+                }));
+                setAiJustification(articulationData.justification);
+                setIsRiskValidated(true);
+                setShowArticulationModal(false);
+                logAIAction({
+                  action_type: 'ARTICULATION_ACCEPT',
+                  original: articulationData.original,
+                  suggestion: articulationData.full_text,
+                  scores: articulationData.scores
+                });
+              }}>Accept & Replace</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`
         :root {
-          --bg-dark: #0f172a;
-          --bg-card: #1e293b;
-          --bg-input: #0f172a;
-          --border: #334155;
-          --primary: #3b82f6;
-          --text-main: #f8fafc;
-          --text-muted: #94a3b8;
+          /* New Color System for Form */
+          --form-page-bg: #F5F5F5;
+          --form-card-bg: #FFFFFF;
+          --form-card-border: #E5E7EB;
+          --form-card-radius: 16px;
+          --form-card-shadow: 0 4px 24px rgba(0,0,0,0.07);
+
+          /* Input Fields */
+          --input-bg: #F8FAFB;
+          --input-bg-focus: #FFFFFF;
+          --input-border: #E2E8F0;
+          --input-border-focus: #2D6A4F;
+          --input-focus-ring: rgba(45,106,79,0.12);
+
+          /* Stepper & Action */
+          --stepper-active: #2D6A4F;
+          --stepper-inactive: #E5E7EB;
+          --stepper-text: #1A1A2E;
+          --stepper-text-muted: #6B7280;
+          --btn-primary-bg: #2D6A4F;
+          --btn-primary-hover: #1A4731;
+
+          /* General (mapping to existing classes where needed) */
+          --border: var(--form-card-border);
+          --primary: #2D6A4F;
+          --text-main: #1A1A2E;
+          --text-muted: #6B7280;
           --success: #10b981;
-          --danger: #ef4444;
-          --warning: #f59e0b;
-        }
+          --danger: #E63946;
+          --warning: #F59E0B;
+        
 
         .risk-page-container {
           max-width: 900px;
           margin: 0 auto;
           color: var(--text-main);
-          padding-bottom: 80px; /* Space for sticky footer */
+          padding-bottom: 60px; /* Reduced from 80px */
         }
 
         /* HEADER */
@@ -778,19 +1360,139 @@ const RiskForm = () => {
           justify-content: space-between;
           align-items: center;
           margin-bottom: 1.5rem;
+        }
+
+        /* Helper Classes */
+        .text-success { color: var(--success); }
+        .text-xs { font-size: 0.75rem; }
+        .flex { display: flex; }
+        .items-center { align-items: center; }
+        .gap-1 { gap: 0.25rem; }
+        .mt-1 { margin-top: 0.25rem; }
+        .mt-3 { margin-top: 0.75rem; }
+        .mt-4 { margin-top: 1rem; }
+        .mb-4 { margin-bottom: 1rem; }
+        .pt-4 { padding-top: 1rem; }
+        .border-t { border-top-width: 1px; }
+        .border-gray-100 { border-color: #f3f4f6; }
+
+        /* Requirement Validation Modal Specifics */
+        .requirement-modal {
+          max-width: 650px !important;
+        }
+        
+        .modal-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(15, 23, 42, 0.4);
+          backdrop-filter: blur(4px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 9999;
+          animation: fadeIn 0.15s ease-out;
+        }
+
+        .modal-container {
+          background: #ffffff;
+          border-radius: 12px;
+          box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+          width: 90%;
+          max-width: 480px;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+          animation: slideUp 0.15s ease-out;
+        }
+
+        .modal-title {
+          padding: 18px 24px;
+          margin: 0;
+          font-size: 1.125rem;
+          font-weight: 600;
+          color: var(--text-main);
+          border-bottom: 1px solid var(--border);
+        }
+
+        .modal-body {
+          padding: 24px;
+        }
+
+        .modal-text {
+          margin-top: 0;
+          margin-bottom: 16px;
+          color: var(--text-muted);
+          line-height: 1.5;
+        }
+
+        .issues-box {
+          background-color: #FEF2F2;
+          border-left: 4px solid var(--danger);
+          padding: 12px 16px;
+          margin-bottom: 16px;
+          border-radius: 0 4px 4px 0;
+        }
+
+        .issues-box strong {
+          color: #991B1B;
+          display: block;
+          margin-bottom: 8px;
+        }
+
+        .issues-list {
+          margin: 0;
+          padding-left: 20px;
+          color: #991B1B;
+        }
+
+        .issues-list li {
+          margin-bottom: 4px;
+        }
+
+        .suggestion-box {
+          background-color: #ECFDF5;
+          border-left: 4px solid var(--success);
+          padding: 12px 16px;
+          border-radius: 0 4px 4px 0;
+        }
+
+        .suggestion-box strong {
+          color: #065F46;
+          display: block;
+          margin-bottom: 4px;
+        }
+
+        .suggestion-box p {
+          color: #065F46;
+          margin: 0;
+        }
+
+        .modal-actions-horizontal {
+          padding: 16px 24px;
+          background: #F8FAFC;
+          border-top: 1px solid var(--border);
+          display: flex;
+          justify-content: flex-end;
+          gap: 12px;
+        }
+
+        .risk-header-border {
           padding-bottom: 1rem;
           border-bottom: 1px solid var(--border);
         }
         .header-left { display: flex; align-items: center; gap: 1rem; }
         .back-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; }
-        .back-btn:hover { color: white; }
+        .back-btn:hover { color: var(--text-main); }
         .header-titles h1 { font-size: 1.25rem; font-weight: 600; margin: 0; letter-spacing: -0.02em; }
-        .sub-header-info { font-size: 0.8rem; color: var(--text-muted); font-family: monospace; background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px; }
+        .sub-header-info { font-size: 0.8rem; color: var(--text-muted); font-family: monospace; background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 4px; }
         .save-status { font-size: 0.75rem; color: var(--success); display: flex; align-items: center; gap: 4px; }
 
         /* SECTIONS */
         .form-section {
-          background: transparent;
+          background: var(--form-card-bg); border-radius: var(--form-card-radius); box-shadow: var(--form-card-shadow); border: 1px solid var(--form-card-border);
           margin-bottom: 2rem;
           /* Removed card background for cleaner flat look */
         }
@@ -829,11 +1531,10 @@ const RiskForm = () => {
         .field-group label { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); }
         
         .input-sm, .textarea-sm, .status-select {
-          background: var(--bg-input);
-          border: 1px solid var(--border);
-          border-radius: 4px;
+          background: var(--input-bg);
+          border: 1px solid var(--input-border); border-radius: 4px;
           padding: 8px 12px;
-          color: white;
+          color: var(--text-main);
           font-size: 0.9rem;
           width: 100%;
           transition: border-color 0.2s;
@@ -859,7 +1560,7 @@ const RiskForm = () => {
             display: flex;
             align-items: center;
             gap: 16px; /* Gap between Inputs and Card */
-            background: rgba(255,255,255,0.02);
+            background: rgba(0,0,0,0.02);
             border: 1px solid var(--border);
             padding: 4px 12px 4px 4px;
             border-radius: 12px;
@@ -872,7 +1573,7 @@ const RiskForm = () => {
             background: rgba(0,0,0,0.2);
             border-radius: 8px;
             padding: 4px;
-            border: 1px solid rgba(255,255,255,0.05);
+            border: 1px solid rgba(0,0,0,0.05);
         }
 
         .rpn-input-group input {
@@ -880,13 +1581,13 @@ const RiskForm = () => {
             height: 48px;
             background: transparent;
             border: none;
-            color: white;
+            color: var(--text-main);
             font-size: 1.4rem;
             font-weight: 700;
             text-align: center;
             padding: 0;
         }
-        .rpn-input-group input:focus { outline: none; background: rgba(255,255,255,0.05); border-radius: 4px; }
+        .rpn-input-group input:focus { outline: none; background: rgba(0,0,0,0.05); border-radius: 4px; }
         
         .sod-label {
             font-size: 0.7rem;
@@ -913,7 +1614,7 @@ const RiskForm = () => {
             min-width: 140px;
             height: 56px;
             border-radius: 8px;
-            background: rgba(255,255,255,0.03);
+            background: rgba(0,0,0,0.03);
             border: 1px solid var(--border);
             position: relative;
             padding: 0 16px;
@@ -933,7 +1634,7 @@ const RiskForm = () => {
             font-size: 1.8rem;
             font-weight: 800;
             line-height: 1;
-            color: white;
+            color: var(--text-main);
         }
 
         .rpn-card-status {
@@ -992,7 +1693,7 @@ const RiskForm = () => {
           display: flex;
           align-items: flex-end; 
           gap: 0; /* Remove gap for toolbar look */
-          background: rgba(255,255,255,0.03);
+          background: rgba(0,0,0,0.03);
           border: 1px solid var(--border);
           border-radius: 8px;
           padding: 4px;
@@ -1031,11 +1732,11 @@ const RiskForm = () => {
             border: none;
             background: transparent;
             text-align: center;
-            color: white; /* Force bright text */
+            color: var(--text-main); /* Force bright text */
             font-weight: 700;
         }
         .rpn-top-group .compact-field-group input:focus {
-            background: rgba(255,255,255,0.05);
+            background: rgba(0,0,0,0.05);
             border-radius: 4px;
         }
 
@@ -1057,15 +1758,98 @@ const RiskForm = () => {
         .sod-compact-row {
           display: none; /* Deprecated */
         }
-        .input-sm:focus, .textarea-sm:focus { outline: none; border-color: var(--primary); }
-        .input-sm.disabled { opacity: 0.6; cursor: not-allowed; background: rgba(255,255,255,0.02); }
+
+        /* ISO WORKFLOW STYLES */
+        .locked-gate { position: relative; }
+        .gate-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(2px);
+            z-index: 50;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: #B45309;
+            cursor: pointer;
+            gap: 8px;
+            border: 1px dashed #F59E0B;
+        }
+        .gate-overlay:hover { background: rgba(255, 255, 255, 0.8); }
+
+        .justification-panel {
+            margin-top: 12px;
+            border: 1px solid #E5E7EB;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #F9FAFB;
+        }
+        .panel-header {
+            padding: 8px 12px;
+            background: #F3F4F6;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .panel-body { padding: 12px; }
+        .justification-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+        .just-item label { font-size: 0.65rem; color: #6B7280; font-weight: 700; text-transform: uppercase; display: block; margin-bottom: 4px; }
+        .just-item p { font-size: 0.7rem; color: #374151; margin: 0; line-height: 1.4; }
+        .audit-note { font-size: 0.65rem; color: #059669; display: flex; align-items: center; gap: 4px; font-weight: 600; margin-top: 8px; }
+
+        .score-advisory-pop {
+            position: absolute;
+            top: -40px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #FFFBEB;
+            border: 1px solid #F59E0B;
+            padding: 4px 8px;
+            border-radius: 6px;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            z-index: 60;
+            white-space: nowrap;
+        }
+        .score-advisory-pop span { font-size: 0.7rem; font-weight: 700; color: #92400E; }
+        .score-advisory-pop button {
+            background: #F59E0B;
+            color: white;
+            border: none;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.65rem;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .articulation-modal { max-width: 600px !important; }
+        .articulation-structure { display: flex; flex-direction: column; gap: 12px; }
+        .art-box { background: #F8FAFC; border: 1px solid #E2E8F0; padding: 12px; border-radius: 8px; }
+        .art-box label { font-size: 0.65rem; font-weight: 700; color: #64748B; text-transform: uppercase; display: block; margin-bottom: 4px; }
+        .art-box p { font-size: 0.85rem; color: #1E293B; margin: 0; font-weight: 500; }
+        .input-sm:focus, .textarea-sm:focus { outline: none;  border-color: var(--input-border-focus); background: var(--input-bg-focus); box-shadow: 0 0 0 3px var(--input-focus-ring); }
+        .input-sm.disabled { opacity: 0.6; cursor: not-allowed; background: rgba(0,0,0,0.02); }
         .frozen-date {
-            background-color: rgba(255, 255, 255, 0.05); /* Slightly darker background */
+            background-color: rgba(0,0,0,0.05); /* Slightly darker background */
             color: var(--text-muted); /* Muted text color */
-            border-color: rgba(255, 255, 255, 0.1);
+            border-color: rgba(0,0,0,0.08);
         }
         .frozen-date:focus {
-            background-color: var(--bg-input); /* Light up on focus to show it's editable */
+            background-color: var(--input-bg); /* Light up on focus to show it's editable */
             color: var(--text-main);
             border-color: var(--primary);
         }
@@ -1123,7 +1907,7 @@ const RiskForm = () => {
         .context-header {
           margin-bottom: 12px;
           padding-bottom: 8px;
-          border-bottom: 1px solid rgba(255,255,255,0.05);
+          border-bottom: 1px solid rgba(0,0,0,0.05);
         }
         .context-title {
           font-size: 0.7rem;
@@ -1180,11 +1964,11 @@ const RiskForm = () => {
            gap: 6px;
            font-size: 0.75rem;
            font-weight: 700;
-           color: white;
-           background: rgba(255,255,255,0.05);
+           color: var(--text-main);
+           background: rgba(0,0,0,0.05);
            padding: 4px 8px;
            border-radius: 4px;
-           border: 1px solid rgba(255,255,255,0.1);
+           border: 1px solid rgba(0,0,0,0.08);
         }
         .sod-badge-group .separator { opacity: 0.3; }
 
@@ -1193,7 +1977,7 @@ const RiskForm = () => {
            font-weight: 800;
            padding: 4px 8px;
            border-radius: 4px;
-           background: rgba(255,255,255,0.1);
+           background: rgba(0,0,0,0.08);
            border: 1px solid transparent;
         }
         .rpn-badge-compact.green { color: var(--success); background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.2); }
@@ -1206,8 +1990,8 @@ const RiskForm = () => {
           padding: 3px 10px;
           border-radius: 12px;
           font-weight: 700;
-          background: rgba(255,255,255,0.05);
-          color: white;
+          background: rgba(0,0,0,0.05);
+          color: var(--text-main);
           width: fit-content;
         }
         .rpn-badge-small.green { color: var(--success); background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.2); }
@@ -1224,7 +2008,7 @@ const RiskForm = () => {
           display: flex;
           align-items: flex-end;
           gap: 1rem;
-          background: rgba(255,255,255,0.03);
+          background: rgba(0,0,0,0.03);
           border: 1px solid var(--border);
           padding: 12px;
           border-radius: 6px;
@@ -1242,246 +2026,75 @@ const RiskForm = () => {
            display: flex;
            align-items: center;
            gap: 10px;
-           background: var(--bg-card);
+           background: var(--form-card-bg);
            padding: 6px 12px;
            border-radius: 20px;
            border: 1px solid var(--border);
         }
         .rpn-label { font-size: 0.75rem; color: var(--text-muted); font-weight: 600; }
-        .rpn-value { font-size: 1.1rem; font-weight: 800; color: white; }
-        
-        .badge-pill {
-          padding: 2px 8px;
-          border-radius: 10px;
-          font-size: 0.7rem;
+        .rpn-value {
+          font-size: 1.2rem;
           font-weight: 700;
-          text-transform: uppercase;
         }
-        .badge-pill.green { background: rgba(16, 185, 129, 0.2); color: var(--success); }
-        .badge-pill.yellow { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
-        .badge-pill.red { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
 
-        /* STICKY ACTION BAR */
-        .sticky-action-bar {
-          position: fixed;
-          bottom: 0;
-          left: 0;
-          right: 0;
-          background: rgba(15, 23, 42, 0.95);
-          backdrop-filter: blur(10px);
-          border-top: 1px solid var(--border);
-          padding: 1rem 2rem;
-          display: flex;
-          justify-content: flex-end;
-          gap: 1rem;
-          z-index: 50;
-          box-shadow: 0 -4px 20px rgba(0,0,0,0.5);
-        }
-        .btn-cancel {
-          background: transparent;
-          border: 1px solid var(--border);
+        .rpn-display-box.green { background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); color: #34d399; }
+        .rpn-display-box.yellow { background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.3); color: #fbbf24; }
+        .rpn-display-box.red { background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.3); color: #f87171; }
+
+        .rpn-arrow {
+          font-size: 1.25rem;
           color: var(--text-muted);
-          padding: 8px 16px;
-          border-radius: 6px;
-          cursor: pointer;
-          font-weight: 500;
+          opacity: 0;
+          visibility: hidden;
+          transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+          transform: translateX(-10px);
         }
-        .btn-cancel:hover { background: rgba(255,255,255,0.05); color: white; }
-        
-        .btn-save {
-          background: var(--primary);
-          border: none;
-          color: white;
-          padding: 8px 20px;
-          border-radius: 6px;
-          cursor: pointer;
-          font-weight: 600;
+        .rpn-arrow.visible {
+          opacity: 1;
+          visibility: visible;
+          transform: translateX(0);
+        }
+
+        .rpn-display-box {
           display: flex;
           align-items: center;
           gap: 8px;
-          box-shadow: 0 2px 10px rgba(59, 130, 246, 0.4);
-        }
-        .btn-save:hover { filter: brightness(1.1); }
-        .btn-save:disabled { opacity: 0.7; cursor: not-allowed; }
-
-        .ml-auto { margin-left: auto; }
-        .animate-spin { animation: spin 1s linear infinite; }
-        @keyframes spin { 100% { transform: rotate(360deg); } }
-
-        /* STEPPER */
-        .stepper-wrapper {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-bottom: 2rem;
-            gap: 1rem;
-        }
-        .step-item { 
-            display: flex; align-items: center; gap: 0.75rem; position: relative; 
-            opacity: 0.7; transition: all 0.3s; cursor: pointer;
-            padding: 0.5rem 1rem; border-radius: 8px;
-        }
-        .step-item:hover { background: rgba(255,255,255,0.05); opacity: 1; }
-        .step-item.active { opacity: 1; transform: scale(1.05); background: rgba(255,255,255,0.03); }
-        .step-item.completed { opacity: 1; }
-        
-        .step-indicator {
-            width: 28px; height: 28px; border-radius: 50%; background: var(--bg-card); border: 1px solid var(--border);
-            display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 700; color: var(--text-muted);
-            transition: all 0.3s;
-        }
-        .active .step-indicator { background: var(--primary); color: white; border-color: var(--primary); box-shadow: 0 0 10px rgba(59,130,246,0.5); }
-        .completed .step-indicator { background: #10b981; color: white; border-color: #10b981; }
-        .step-label { font-size: 0.85rem; font-weight: 600; color: var(--text-muted); }
-        .active .step-label { color: white; }
-        .completed .step-label { color: #10b981; }
-
-        .step-line { width: 40px; height: 2px; background: var(--border); margin-left: 0.5rem; }
-        .completed .step-line { background: #10b981; }
-
-        .btn-prev { background: transparent; color: var(--text-muted); border: 1px solid var(--border); padding: 8px 16px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; font-weight: 600; margin-right: auto; }
-        .btn-next { background: var(--primary); color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; font-weight: 600; box-shadow: 0 4px 15px rgba(59,130,246,0.3); }
-
-        .animate-fade-in { animation: fadeIn 0.4s ease-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-
-
-        /* STEP 3 LAYOUT - COMPACT ENTERPRISE STYLE */
-        .step-3-layout {
-          display: flex;
-          gap: 20px;
-          align-items: flex-start;
-        }
-        .left-summary-panel {
-          flex: 0 0 45%; /* Increased width to reduce height */
-          min-width: 300px;
-        }
-        .right-review-panel {
-          flex: 1;
-        }
-
-        .summary-card {
-          background: rgba(15, 23, 42, 0.4);
-          border: 1px solid rgba(255,255,255,0.1);
+          padding: 8px 16px;
           border-radius: 6px;
-          overflow: hidden;
+          border: 1px solid var(--border);
+          min-width: 100px;
+          opacity: 0;
+          visibility: hidden;
+          transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+          transform: scale(0.9) translateY(5px);
         }
-        .summary-details { width: 100%; }
-        
-        .summary-toggle {
-          padding: 10px 14px;
-          background: rgba(255, 255, 255, 0.02);
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
+        .rpn-display-box.visible {
+          opacity: 1;
+          visibility: visible;
+          transform: scale(1) translateY(0);
+        }
+
+        .rpn-label {
           font-size: 0.75rem;
-          font-weight: 700;
-          letter-spacing: 0.05em;
-          color: var(--primary);
+          font-weight: 600;
           text-transform: uppercase;
-          border-bottom: 1px solid rgba(255,255,255,0.05);
-          list-style: none;
-        }
-        .summary-toggle::-webkit-details-marker { display: none; }
-        
-        .summary-content {
-          padding: 16px; /* Increased padding */
-          display: flex;
-          flex-direction: column;
-          gap: 12px; /* Increased gap */
-          max-height: 75vh; /* Taller */
-          overflow-y: auto;
-        }
-        
-        /* Summary Typography */
-        .summary-group { display: flex; flex-direction: column; gap: 2px; margin-bottom: 4px; }
-        .summary-group label { font-size: 0.65rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; opacity: 0.7; }
-        .summary-group p { font-size: 0.8rem; color: var(--text-main); margin: 0; line-height: 1.3; font-weight: 500; font-style: italic; }
-        
-        .summary-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-        
-        .truncate-lines-1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-        .truncate-lines-2 { 
-           display: -webkit-box;
-           -webkit-line-clamp: 4; /* Increased to 4 lines */
-           -webkit-box-orient: vertical;
-           overflow: hidden; 
-           max-height: none; 
+          opacity: 0.8;
         }
 
-        /* Compact Metrics Row */
-        .summary-metrics {
-           display: flex;
-           align-items: center;
-           justify-content: space-between;
-           gap: 8px;
-           background: rgba(255,255,255,0.02);
-           padding: 6px 10px;
-           border-radius: 4px;
-           margin: 4px 0;
-           border: 1px solid rgba(255,255,255,0.05);
-        }
-        .metric-group { display: flex; gap: 8px; align-items: center; }
-        .metric { font-size: 0.75rem; font-weight: 700; color: white; display: flex; align-items: center; gap: 3px; }
-        .metric span { color: var(--text-muted); font-weight: 500; font-size: 0.7rem; }
-        .metric-separator { color: rgba(255,255,255,0.1); }
-        
-        .summary-divider { height: 1px; background: rgba(255,255,255,0.05); margin: 4px 0; }
-
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
-
-        /* Updated Step 3 Layout */
-        .step-3-layout {
-          display: grid;
-          grid-template-columns: 0.7fr 1.3fr;
-          gap: 1.5rem;
-          align-items: start;
+        /* Subtle pop animation on change */
+        .rpn-updated {
+          transform: scale(1.1);
         }
 
-        .summary-card-header {
-          padding: 10px 16px;
-          background: rgba(255, 255, 255, 0.03);
-          border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        .rpn-status {
           font-size: 0.75rem;
-          font-weight: 700;
-          color: var(--text-muted);
+          font-weight: 600;
+          margin-left: auto;
           text-transform: uppercase;
-          letter-spacing: 0.05em;
+          display: none;
         }
 
-        .summary-content {
-          padding: 16px;
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-
-        .left-summary-panel {
-          width: 100%;
-        }
-
-        @media (max-width: 1000px) {
-           .step-3-layout { grid-template-columns: 1fr; }
-        }
-
-        /* FINAL REFINEMENTS */
-        .risk-form-page { gap: 1.2rem; } /* Tighter global spacing */
-        
-        .step-3-layout .section-title {
-           margin-bottom: 0.5rem; /* Reduced from 1rem */
-        }
-        
-        /* Tighter right panel grid */
-        .right-review-panel .compact-grid { gap: 1rem; }
-        
-        .right-review-panel textarea[name="actions_taken"] {
-           min-height: 80px;
-           height: 80px; /* Explicit height */
-        }
-        /* RPN New Layout */
+        /* 1. SEVERITY, OCCURRENCE, DETECTION GRID */
         .sod-rpn-row {
           display: flex;
           align-items: center;
@@ -1492,9 +2105,9 @@ const RiskForm = () => {
         
         .sod-group {
           display: flex;
-          gap: 1.5rem; /* Increased gap */
-          background: var(--bg-card);
-          padding: 8px 16px; /* Increased padding */
+          gap: 1.5rem;
+          background: var(--form-card-bg);
+          padding: 8px 16px;
           border-radius: 6px;
           border: 1px solid var(--border);
         }
@@ -1503,7 +2116,7 @@ const RiskForm = () => {
           display: flex;
           flex-direction: column;
           align-items: center;
-          min-width: 90px; /* Increased to prevent label overlap */
+          min-width: 90px;
         }
 
         .sod-item label {
@@ -1517,12 +2130,12 @@ const RiskForm = () => {
 
         .sod-item input {
           width: 50px;
-          height: 42px; /* Standardize height */
+          height: 42px;
           text-align: center;
-          background: rgba(255, 255, 255, 0.05); /* Unified background */
-          border: 1px solid var(--border); /* Standardized border */
+          background: rgba(0,0,0,0.05);
+          border: 1px solid var(--input-border);
           border-radius: 4px;
-          color: white;
+          color: var(--text-main);
           font-weight: 600;
           font-size: 1.1rem;
           padding: 4px;
@@ -1531,7 +2144,7 @@ const RiskForm = () => {
         .sod-item input:focus {
           outline: none;
           border-color: var(--primary);
-          background: rgba(255, 255, 255, 0.1);
+          background: rgba(0,0,0,0.08);
         }
 
         .sod-item input.error {
@@ -1540,44 +2153,128 @@ const RiskForm = () => {
           background: rgba(239, 68, 68, 0.1);
         }
 
-        .rpn-arrow {
-          color: var(--text-muted);
-          font-size: 1.2rem;
-          opacity: 0.5;
+        /* RESTORED MISSING STYLES */
+        .badge-pill {
+          padding: 2px 8px;
+          border-radius: 10px;
+          font-size: 0.7rem;
+          font-weight: 700;
+          text-transform: uppercase;
+        }
+        .badge-pill.green { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+        .badge-pill.yellow { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
+        .badge-pill.red { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+
+        .form-actions-inline {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-top: 0.5rem;
+          padding-top: 0.5rem;
+          border-top: 1px solid var(--border);
         }
 
-        .rpn-display-box {
+        .btn-prev {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--text-muted);
+          padding: 6px 12px;
+          border-radius: 4px;
+          cursor: pointer;
+          font-weight: 500;
+          font-size: 0.8rem;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+        .btn-prev:hover { background: rgba(0,0,0,0.05); color: var(--text-main); }
+
+        .btn-next {
+          background: var(--primary);
+          border: none;
+          color: white;
+          padding: 6px 16px;
+          border-radius: 4px;
+          cursor: pointer;
+          font-weight: 600;
+          font-size: 0.8rem;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          box-shadow: 0 2px 8px rgba(45, 106, 79, 0.15);
+        }
+        .btn-next:hover { filter: brightness(1.1); }
+
+        .btn-cancel {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--text-muted);
+          padding: 6px 12px;
+          border-radius: 4px;
+          cursor: pointer;
+          font-weight: 500;
+          font-size: 0.8rem;
+        }
+        .btn-cancel:hover { background: rgba(0,0,0,0.05); color: var(--text-main); }
+        
+        .btn-save {
+          background: var(--primary);
+          border: none;
+          color: var(--text-main);
+          padding: 8px 20px;
+          border-radius: 6px;
+          cursor: pointer;
+          font-weight: 600;
           display: flex;
           align-items: center;
           gap: 8px;
-          padding: 8px 16px;
-          border-radius: 6px;
-          border: 1px solid var(--border);
-          min-width: 100px;
+          box-shadow: 0 2px 10px rgba(59, 130, 246, 0.4);
         }
+        .btn-save:hover { filter: brightness(1.1); }
+        .btn-save:disabled { opacity: 0.7; cursor: not-allowed; }
+
+        .stepper-wrapper {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 2rem;
+            gap: 1rem;
+        }
+        .step-item { 
+            display: flex; align-items: center; gap: 0.75rem; position: relative; 
+            opacity: 0.7; transition: all 0.3s; cursor: pointer;
+            padding: 0.5rem 1rem; border-radius: 8px;
+        }
+        .step-item:hover { background: rgba(0,0,0,0.05); opacity: 1; }
+        .step-item.active { opacity: 1; transform: scale(1.05); background: rgba(0,0,0,0.03); }
+        .step-item.completed { opacity: 1; }
         
-        .rpn-display-box.green { background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); color: #34d399; }
-        .rpn-display-box.yellow { background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.3); color: #fbbf24; }
-        .rpn-display-box.red { background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.3); color: #f87171; }
-
-        .rpn-label {
-          font-size: 0.75rem;
-          font-weight: 600;
-          text-transform: uppercase;
-          opacity: 0.8;
+        .step-indicator {
+            width: 28px; height: 28px; border-radius: 50%; background: var(--form-card-bg); border: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 700; color: var(--text-muted);
+            transition: all 0.3s;
         }
+        .active .step-indicator { background: var(--stepper-active); color: #FFF; border-color: var(--stepper-active); box-shadow: 0 0 10px var(--input-focus-ring); }
+        .completed .step-indicator { background: var(--success); color: #FFF; border-color: var(--success); }
+        .step-label { font-size: 0.85rem; font-weight: 600; color: var(--text-muted); }
+        .active .step-label { color: var(--text-main); }
+        .completed .step-label { color: #10b981; }
 
-        .rpn-value {
-          font-size: 1.2rem;
-          font-weight: 700;
+        .step-line { width: 40px; height: 2px; background: var(--stepper-inactive); margin-left: 0.5rem; }
+        .completed .step-line { background: #10b981; }
+
+        .animate-fade-in { animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* STEP 3 LAYOUT */
+        .step-3-layout {
+          display: grid;
+          grid-template-columns: 0.7fr 1.3fr;
+          gap: 1.5rem;
+          align-items: start;
         }
-
-        .rpn-status {
-          font-size: 0.75rem;
-          font-weight: 600;
-          margin-left: auto;
-          text-transform: uppercase;
-          display: none; /* Hidden by default or remove element */
+        @media (max-width: 1000px) {
+           .step-3-layout { grid-template-columns: 1fr; }
         }
 
         /* Section Header Layout */
@@ -1618,8 +2315,15 @@ const RiskForm = () => {
         }
         
         .input-compact-date:hover, .input-compact-date:focus {
-           color: white;
+           color: var(--text-main);
            border-color: var(--primary);
+        }
+
+        .input-compact-date.frozen {
+          background: rgba(0, 0, 0, 0.05);
+          color: var(--text-muted);
+          cursor: not-allowed;
+          border-color: var(--border);
         }
 
 
@@ -1628,7 +2332,7 @@ const RiskForm = () => {
             display: flex;
             align-items: center;
             gap: 24px;
-            background: var(--bg-card); /* Unified with Step 1 */
+            background: var(--form-card-bg); /* Unified with Step 1 */
             padding: 12px 16px;
             border-radius: 8px;
             border: 1px solid var(--border); /* Unified border */
@@ -1659,17 +2363,16 @@ const RiskForm = () => {
             width: 50px;
             height: 42px; /* Match sod-item height */
             text-align: center;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            color: white;
+            background: rgba(0,0,0,0.05);
+            border: 1px solid var(--input-border); border-radius: 4px;
+            color: var(--text-main);
             font-weight: 600;
         }
         
         .compact-field-group input:focus {
             outline: none;
             border-color: var(--primary);
-            background: rgba(255, 255, 255, 0.1);
+            background: rgba(0,0,0,0.08);
         }
         
         .compact-field-group input.error {

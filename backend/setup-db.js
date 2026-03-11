@@ -92,6 +92,7 @@ async function setup() {
         risk_id VARCHAR(20) NOT NULL UNIQUE,
         sl_no INT NOT NULL,
         department_id INT NOT NULL,
+        date_raised DATE,
         process_function VARCHAR(200),
         risk_description TEXT NOT NULL,
         potential_failure_mode TEXT,
@@ -105,6 +106,17 @@ async function setup() {
         rpn INT,
         risk_classification VARCHAR(50),
         recommended_actions TEXT,
+        responsibility_owner VARCHAR(100),
+        target_completion_date DATE,
+        actual_completion_date DATE,
+        status VARCHAR(50) DEFAULT 'Open',
+        severity_after INT,
+        occurrence_after INT,
+        detection_after INT,
+        residual_rpn INT,
+        residual_classification VARCHAR(50),
+        review_date DATE,
+        is_ai_assisted BOOLEAN DEFAULT FALSE,
         action_status_results TEXT,
         created_by INT NOT NULL,
         updated_by INT,
@@ -210,19 +222,19 @@ async function setup() {
     await connection.query(`
       INSERT IGNORE INTO users (id, username, password_hash, full_name, email, role, department_id) VALUES
         (1, 'admin', ?, 'System Administrator', 'admin@company.com', 'admin', NULL),
-        (2, 'it_head', ?, 'John Smith', 'john.smith@company.com', 'department_head', 1),
-        (3, 'finance_head', ?, 'Sarah Johnson', 'sarah.johnson@company.com', 'department_head', 2),
-        (4, 'hr_owner', ?, 'Michael Brown', 'michael.brown@company.com', 'risk_owner', 3),
-        (5, 'ops_owner', ?, 'Emily Davis', 'emily.davis@company.com', 'risk_owner', 4),
-        (6, 'comp_head', ?, 'David Wilson', 'david.wilson@company.com', 'department_head', 5),
-        (7, 'sales_owner', ?, 'Jennifer Lee', 'jennifer.lee@company.com', 'risk_owner', 6)
+        (2, 'it_user', ?, 'John Smith', 'john.smith@company.com', 'department_head', 1),
+        (3, 'finance_user', ?, 'Sarah Johnson', 'sarah.johnson@company.com', 'department_head', 2),
+        (4, 'hr_user', ?, 'Michael Brown', 'michael.brown@company.com', 'risk_owner', 3),
+        (5, 'ops_user', ?, 'Emily Davis', 'emily.davis@company.com', 'risk_owner', 4),
+        (6, 'comp_user', ?, 'David Wilson', 'david.wilson@company.com', 'department_head', 5),
+        (7, 'sales_user', ?, 'Jennifer Lee', 'jennifer.lee@company.com', 'risk_owner', 6)
     `, [adminPassword, userPassword, userPassword, userPassword, userPassword, userPassword, userPassword]);
-    
+
     // Update department heads
     await connection.query('UPDATE departments SET head_user_id = 2 WHERE id = 1');
     await connection.query('UPDATE departments SET head_user_id = 3 WHERE id = 2');
     await connection.query('UPDATE departments SET head_user_id = 6 WHERE id = 5');
-    
+
     console.log('✓ Users seeded');
 
     console.log('\nSeeding sample risks...');
